@@ -52,7 +52,7 @@ def game_loop(blue_socket, red_socket):
 # Run the server
 if __name__ == "__main__":
     HOST = '0.0.0.0'
-    PORT = 8080
+    PORT = 9056
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
