@@ -4,7 +4,7 @@ import socket
 def game_loop(blue_socket, red_socket):
     while True:
         try:
-            data = blue_socket.recv(4096)
+            data = blue_socket.recv(1024)
             if data:
                 red_socket.sendall(data)
             else:
@@ -26,7 +26,7 @@ def game_loop(blue_socket, red_socket):
             break
 
         try:
-            data = red_socket.recv(4096)
+            data = red_socket.recv(1024)
             if data:
                 blue_socket.sendall(data)
             else:
