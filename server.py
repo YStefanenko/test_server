@@ -4,20 +4,19 @@ import socket
 def game_loop(blue_socket, red_socket):
     while True:
         try:
-            data = blue_socket.recv(1024)
-            if data:
-                red_socket.sendall(data)
+            blue_data = blue_socket.recv(2048)
+            red_data = red_socket.recv(2048)
+
+            if blue_data and red_data:
+                blue_socket.sendall(red_data)
+                red_socket.sendall(blue_data)
+
             else:
-                red_socket.sendall(''.encode())
-                red_socket.close()
+                raise BrokenPipeError
 
-                print('Blue player disconnected')
-                print('Red player disconnected')
-
-                break
-
-        except (ConnectionResetError, BrokenPipeError):
-            red_socket.sendall(''.encode())
+        except socket.error as e:
+            print('error occured')
+            blue_socket.close()
             red_socket.close()
 
             print('Blue player disconnected')
@@ -25,27 +24,6 @@ def game_loop(blue_socket, red_socket):
 
             break
 
-        try:
-            data = red_socket.recv(1024)
-            if data:
-                blue_socket.sendall(data)
-            else:
-                blue_socket.sendall(''.encode())
-                blue_socket.close()
-
-                print('Red player disconnected')
-                print('Blue player disconnected')
-
-                break
-
-        except (ConnectionResetError, BrokenPipeError):
-            blue_socket.sendall(''.encode())
-            blue_socket.close()
-
-            print('Red player disconnected')
-            print('Blue player disconnected')
-
-            break
 
 
 
@@ -93,6 +71,3 @@ if __name__ == "__main__":
 
             red_socket = None
             blue_socket = None
-
-
-
