@@ -1,17 +1,24 @@
 import socket
+import struct
+import threading
 
 
 def game_loop(blue_socket, red_socket):
     while True:
         try:
-            blue_data = blue_socket.recv(2048)
-            red_data = red_socket.recv(2048)
+            blue_length = struct.unpack('!I', blue_socket.recv(4))[0]
+            blue_data = blue_socket.recv(blue_length)
+            blue_length = struct.pack('!I', blue_length)
+            red_length = struct.unpack('!I', red_socket.recv(4))[0]
+            red_data = red_socket.recv(red_length)
+            red_length = struct.pack('!I', red_length)
 
             if blue_data and red_data:
-                blue_socket.sendall(red_data)
-                red_socket.sendall(blue_data)
+                blue_socket.sendall(red_length + red_data)
+                red_socket.sendall(blue_length + blue_data)
 
             else:
+                print('someone disconnected')
                 raise BrokenPipeError
 
         except socket.error as e:
@@ -67,7 +74,9 @@ if __name__ == "__main__":
             red_socket.sendall('red'.encode())
             blue_socket.sendall('blue'.encode())
 
+            print('Game started')
             game_loop(blue_socket, red_socket)
+            print('Game ended')
 
             red_socket = None
             blue_socket = None
