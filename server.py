@@ -4,6 +4,7 @@ import threading
 
 
 def game_loop(blue_socket, red_socket):
+    print('Game started')
     while True:
         try:
             blue_length = struct.unpack('!I', blue_socket.recv(4))[0]
@@ -21,10 +22,12 @@ def game_loop(blue_socket, red_socket):
                 print('someone disconnected')
                 raise BrokenPipeError
 
-        except socket.error as e:
+        except socket.error or struct.error as e:
             print('error occured')
             blue_socket.close()
             red_socket.close()
+
+            print('Game ended')
 
             print('Blue player disconnected')
             print('Red player disconnected')
@@ -44,6 +47,8 @@ if __name__ == "__main__":
 
     red_socket = None
     blue_socket = None
+
+    games = []
 
     print('Server is running')
     server.listen(2)
@@ -74,9 +79,11 @@ if __name__ == "__main__":
             red_socket.sendall('red'.encode())
             blue_socket.sendall('blue'.encode())
 
-            print('Game started')
-            game_loop(blue_socket, red_socket)
-            print('Game ended')
+            new_game = threading.Thread(target=game_loop, args=(blue_socket, red_socket), daemon=True).start()
+            print('yes')
 
             red_socket = None
             blue_socket = None
+
+
+
