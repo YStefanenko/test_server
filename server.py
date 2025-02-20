@@ -7,26 +7,34 @@ def game_loop(blue_socket, red_socket):
     print('Game started')
     while True:
         try:
-            blue_length = struct.unpack('!I', blue_socket.recv(4))[0]
-            blue_data = blue_socket.recv(blue_length)
-            blue_length = struct.pack('!I', blue_length)
-            red_length = struct.unpack('!I', red_socket.recv(4))[0]
-            red_data = red_socket.recv(red_length)
-            red_length = struct.pack('!I', red_length)
+            buff = blue_socket.recv(4)
+            if buff:
+                blue_length = struct.unpack('!I', buff)[0]
+                blue_data = buff + blue_socket.recv(blue_length)
+            else:
+                blue_data = ''.encode()
+
+            buff = red_socket.recv(4)
+            if buff:
+                red_length = struct.unpack('!I', buff)[0]
+                red_data = buff + red_socket.recv(red_length)
+            else:
+                red_data = ''.encode()
 
             if blue_data and red_data:
-                blue_socket.sendall(red_length + red_data)
-                red_socket.sendall(blue_length + blue_data)
+                blue_socket.sendall(red_data)
+                red_socket.sendall(blue_data)
 
             else:
-                print('someone disconnected')
+                print('Someone disconnected')
                 raise BrokenPipeError
 
-        except socket.error or struct.error as e:
-            print('error occured')
+        except socket.error as e:
+            print('Error occured')
             blue_socket.close()
             red_socket.close()
 
+            print(e)
             print('Game ended')
 
             print('Blue player disconnected')
@@ -60,7 +68,7 @@ if __name__ == "__main__":
         if red_socket is not None:
             try:
                 red_socket.sendall('test'.encode())
-                test = red_socket.recv(1024).decode()
+                test = red_socket.recv(512).decode()
                 if test == b'':
                     red_socket = None
             except (ConnectionResetError, BrokenPipeError):
@@ -80,7 +88,6 @@ if __name__ == "__main__":
             blue_socket.sendall('blue'.encode())
 
             new_game = threading.Thread(target=game_loop, args=(blue_socket, red_socket), daemon=True).start()
-            print('yes')
 
             red_socket = None
             blue_socket = None
