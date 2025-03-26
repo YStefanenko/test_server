@@ -6,8 +6,11 @@ import threading
 def game_session(player1, player2):
     try:
         while True:
-            player2.sendall(player1.recv(8192))
-            player1.sendall(player2.recv(8192))
+            data1 = player1.recv(8192)
+            data2 = player2.recv(8192)
+            player1.sendall(data2)
+            player2.sendall(data1)
+
     except socket.error as e:
         player1.close()
         player2.close()
@@ -15,7 +18,7 @@ def game_session(player1, player2):
 
 
 
-SERVER_IP = "0.0.0.0"  # Listen on all interfaces
+SERVER_IP = "0.0.0.0"
 SERVER_PORT = 9056
 
 players = []  # Store connected players
