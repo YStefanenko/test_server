@@ -1,29 +1,90 @@
 import socket
 import random
+import struct
+import pickle
 import threading
 
 
-def game_session(player1, player2):
+def encode(message):
+    message = pickle.dumps(message)
+    message = struct.pack('>I', len(message)) + message
+    return message
+
+
+def decode(message):
+    message = pickle.loads(message)
+    return message
+
+
+def send(player_socket, message):
     try:
-        while True:
-            data1 = player1.recv(8192)
-            data2 = player2.recv(8192)
-            player1.sendall(data2)
-            player2.sendall(data1)
+        player_socket.sendall(message)
+        return 1
 
-    except socket.error as e:
-        player1.close()
-        player2.close()
-        print('game ended')
+    except socket.error or socket.timeout as e:
+        print('error occurred when sending a message')
+        return 0
 
+
+def receive(connection):
+    try:
+        prefix = connection.recv(4)
+        if not prefix:
+            return 0, 0
+        length = struct.unpack('>I', prefix)[0]
+        message = connection.recv(length)
+        return message, prefix
+
+    except socket.error or socket.timeout as e:
+        print('error occurred when receiving a message')
+        return 0, 0
+
+
+def game_session_1v1(player1, player2):
+    while True:
+        message1, prefix1 = receive(player1)
+        message2, prefix2 = receive(player2)
+
+        if message1 == 0 or message2 == 0:
+            player1.close()
+            player2.close()
+            print('game ended')
+            break
+
+        send(player1, prefix2 + message2)
+        send(player2, prefix1 + message1)
+
+
+def game_session_2v2(player1, player2, player3, player4):
+    while True:
+        message1, prefix1 = receive(player1)
+        message2, prefix2 = receive(player2)
+        message3, prefix3 = receive(player3)
+        message4, prefix4 = receive(player4)
+
+        if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
+            player1.close()
+            player2.close()
+            player3.close()
+            player4.close()
+            print('game ended')
+            break
+
+        message = encode([decode(message1), decode(message2), decode(message3), decode(message4)])
+
+        send(player1, message)
+        send(player2, message)
+        send(player3, message)
+        send(player4, message)
 
 
 SERVER_IP = "0.0.0.0"
 SERVER_PORT = 9056
 
-players = []  # Store connected players
+queue_1v1 = []
+queue_2v2 = []
 
-# Create UDP socket
+
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((SERVER_IP, SERVER_PORT))
 
@@ -31,35 +92,72 @@ server_socket.listen()
 print(f"Server started at {SERVER_IP}:{SERVER_PORT}")
 
 while True:
-    player_socket, address = server_socket.accept()
-    print(f"Player connected: {address}")
+    connection, address = server_socket.accept()
+    connection.settimeout(3)
+    message = receive(connection)[0]
+    if message == 0:
+        connection_type = None
+        connection.close()
+    else:
+        connection_type = decode(message)
+        if connection_type == '1v1':
+            queue_1v1.append([connection, address])
+        elif connection_type == '2v2':
+            queue_2v2.append([connection, address])
+        print(f"Player connected: {address}")
 
-    players.append([player_socket, address])
+    if connection_type == '1v1':
+        if len(queue_1v1) >= 2:
+            players = []
+            i = 0
+            while len(players) < 2 <= len(queue_1v1):
+                send(queue_1v1[i][0], encode('check'))
+                message = receive(queue_1v1[i][0])[0]
+                if message == 0:
+                    print(f'Player {queue_1v1[i][1]} disconnected')
+                    queue_1v1.remove(queue_1v1[i])
+                else:
+                    players.append(queue_1v1[i])
+                    i += 1
 
-    if len(players) >= 2:
-        # Check connections
-        maps =[]
-        for player in players:
-            try:
-                player[0].sendall('check'.encode())
-                map_choice = player[0].recv(1024).decode()
-                maps.append(map_choice)
-            except socket.error as e:
-                print(f'Player {player[1]} disconnected')
-                players.remove(player)
+            if len(players) == 2:
+                queue_1v1.remove(players[0])
+                queue_1v1.remove(players[1])
 
-        if len(players) >= 2:
-            try:
-                blue_player = players.pop(0)
-                red_player = players.pop(0)
+                map_final = random.randint(1, 9)
 
-                map_final = maps[0]
+                send(players[0][0], encode(f"blue:{map_final}"))
+                send(players[1][0], encode(f"red:{map_final}"))
 
-                blue_player[0].sendall(f"blue:{map_final}".encode())
-                red_player[0].sendall(f"red:{map_final}".encode())
+                print(f"Matched {players[0][1]} <--> {players[1][1]}")
+                threading.Thread(target=game_session_1v1, args=(players[0][0], players[1][0]), daemon=True).start()
 
-                print(f"Matched {blue_player[1]} <--> {red_player[1]}")
-                threading.Thread(target=game_session, args=(blue_player[0], red_player[0]), daemon=True).start()
+    if connection_type == '2v2':
+        if len(queue_2v2) >= 4:
+            players = []
+            i = 0
+            while len(players) < 4 <= len(queue_2v2):
+                send(queue_2v2[i][0], encode('check'))
+                message = receive(queue_2v2[i][0])[0]
+                if message == 0:
+                    print(f'Player {queue_2v2[i][1]} disconnected')
+                    queue_2v2.remove(queue_2v2[i])
+                else:
+                    players.append(queue_2v2[i])
+                    i += 1
 
-            except socket.error as e:
-                print('game ended')
+            if len(players) == 4:
+                queue_2v2.remove(players[0])
+                queue_2v2.remove(players[1])
+                queue_2v2.remove(players[2])
+                queue_2v2.remove(players[3])
+
+                map_final = random.randint(1, 9)
+
+                send(players[0][0], encode(f"blue:{map_final}"))
+                send(players[1][0], encode(f"blue:{map_final}"))
+                send(players[2][0], encode(f"red:{map_final}"))
+                send(players[3][0], encode(f"red:{map_final}"))
+
+                print(f"Matched {players[0][1]} & {players[1][1]} <--> {players[2][1]} & {players[3][1]}")
+                threading.Thread(target=game_session_2v2, args=(players[0][0], players[1][0], players[2][0], players[3][0]), daemon=True).start()
