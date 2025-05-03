@@ -3,6 +3,7 @@ import random
 import struct
 import pickle
 import threading
+import numpy
 
 
 def encode(message):
