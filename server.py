@@ -125,7 +125,7 @@ while True:
                 queue_1v1.remove(players[0])
                 queue_1v1.remove(players[1])
 
-                map_final = random.randint(1, 9)
+                map_final = random.randint(1, 15)
 
                 send(players[0][0], encode(f"blue:{map_final}"))
                 send(players[1][0], encode(f"red:{map_final}"))
@@ -153,7 +153,7 @@ while True:
                 queue_2v2.remove(players[2])
                 queue_2v2.remove(players[3])
 
-                map_final = random.randint(1, 9)
+                map_final = random.randint(1, 15)
 
                 send(players[0][0], encode(f"blue:{map_final}"))
                 send(players[1][0], encode(f"blue:{map_final}"))
