@@ -42,14 +42,32 @@ def receive(connection):
 
 
 def game_session_1v1(player1, player2):
+    end_message = [pickle.dumps('blue'), pickle.dumps('red')]
     while True:
         message1, prefix1 = receive(player1)
         message2, prefix2 = receive(player2)
 
         if message1 == 0 or message2 == 0:
+            if message1 == 0:
+                send(player2, encode('red'))
+            else:
+                send(player1, encode('blue'))
             player1.close()
             player2.close()
-            print('game ended')
+            print('Game Interrupted')
+            break
+
+        if message1 in end_message or message2 in end_message:
+            if message1 == end_message[0] and message2 == end_message[0]:
+                winner = decode(message1)
+            elif message1 == end_message[1] and message2 == end_message[1]:
+                winner = decode(message1)
+            else:
+                winner = None
+
+            player1.close()
+            player2.close()
+            print(f'Game Ended. Winner: {winner}')
             break
 
         send(player1, prefix2 + message2)
@@ -57,6 +75,7 @@ def game_session_1v1(player1, player2):
 
 
 def game_session_2v2(player1, player2, player3, player4):
+    end_message = [pickle.dumps('blue'), pickle.dumps('red')]
     while True:
         message1, prefix1 = receive(player1)
         message2, prefix2 = receive(player2)
@@ -68,7 +87,27 @@ def game_session_2v2(player1, player2, player3, player4):
             player2.close()
             player3.close()
             player4.close()
-            print('game ended')
+            print('Game Interrupted')
+            break
+
+        if message1 in end_message or message2 in end_message or message3 in end_message or message4 in end_message:
+            winner = {
+                'red': 0,
+                'blue': 0,
+                'none': 0
+            }
+            winner['blue' if message1 == end_message[0] else 'red' if message1 == end_message[1] else 'none'] += 1
+            winner['blue' if message2 == end_message[0] else 'red' if message2 == end_message[1] else 'none'] += 1
+            winner['blue' if message3 == end_message[0] else 'red' if message3 == end_message[1] else 'none'] += 1
+            winner['blue' if message4 == end_message[0] else 'red' if message4 == end_message[1] else 'none'] += 1
+
+            player1.close()
+            player2.close()
+            player3.close()
+            player4.close()
+
+            winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
+            print(f'Game Ended. Winner: {winner}')
             break
 
         message = encode([decode(message1), decode(message2), decode(message3), decode(message4)])
@@ -153,7 +192,7 @@ while True:
                 queue_2v2.remove(players[2])
                 queue_2v2.remove(players[3])
 
-                map_final = random.randint(1, 15)
+                map_final = random.randint(1, 9)
 
                 send(players[0][0], encode(f"blue:{map_final}"))
                 send(players[1][0], encode(f"blue:{map_final}"))
