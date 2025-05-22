@@ -44,7 +44,7 @@ def receive(connection):
 
 
 def check_login(username, password):
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
     c = conn.cursor()
     c.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
     result = c.fetchone()
@@ -58,7 +58,7 @@ def check_login(username, password):
 
 
 def score_game(winner, loser):
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
     c = conn.cursor()
     c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (winner,))
     c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (loser,))
