@@ -3,6 +3,8 @@ import random
 import struct
 import pickle
 import threading
+import sqlite3
+import bcrypt
 import numpy
 
 
@@ -41,19 +43,43 @@ def receive(connection):
         return 0, 0
 
 
+def check_login(username, password):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
+    result = c.fetchone()
+    conn.close()
+
+    if result:
+        stored_hash = result[0]
+        if bcrypt.checkpw(password.encode(), stored_hash):
+            return 1
+    return 0
+
+
+def score_game(winner, loser):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (winner,))
+    c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (loser,))
+    conn.commit()
+    conn.close()
+    print('Scores updated')
+
+
 def game_session_1v1(player1, player2):
     end_message = [pickle.dumps('blue'), pickle.dumps('red')]
     while True:
-        message1, prefix1 = receive(player1)
-        message2, prefix2 = receive(player2)
+        message1, prefix1 = receive(player1['socket'])
+        message2, prefix2 = receive(player2['socket'])
 
         if message1 == 0 or message2 == 0:
             if message1 == 0:
-                send(player2, encode('red'))
+                send(player2['socket'], encode('red'))
             else:
-                send(player1, encode('blue'))
-            player1.close()
-            player2.close()
+                send(player1['socket'], encode('blue'))
+            player1['socket'].close()
+            player2['socket'].close()
             print('Game Interrupted')
             break
 
@@ -65,28 +91,34 @@ def game_session_1v1(player1, player2):
             else:
                 winner = None
 
-            player1.close()
-            player2.close()
-            print(f'Game Ended. Winner: {winner}')
+            player1['socket'].close()
+            player2['socket'].close()
+
+            if winner == 'blue':
+                score_game(player1['username'], player2['username'])
+            elif winner == 'red':
+                score_game(player2['username'], player1['username'])
+
+            print(f"Game Ended. Winner: {player1['username'] if winner == 'blue' else player2['username'] if winner == 'red' else 'None'}")
             break
 
-        send(player1, prefix2 + message2)
-        send(player2, prefix1 + message1)
+        send(player1['socket'], prefix2 + message2)
+        send(player2['socket'], prefix1 + message1)
 
 
 def game_session_2v2(player1, player2, player3, player4):
     end_message = [pickle.dumps('blue'), pickle.dumps('red')]
     while True:
-        message1, prefix1 = receive(player1)
-        message2, prefix2 = receive(player2)
-        message3, prefix3 = receive(player3)
-        message4, prefix4 = receive(player4)
+        message1, prefix1 = receive(player1['socket'])
+        message2, prefix2 = receive(player2['socket'])
+        message3, prefix3 = receive(player3['socket'])
+        message4, prefix4 = receive(player4['socket'])
 
         if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
-            player1.close()
-            player2.close()
-            player3.close()
-            player4.close()
+            player1['socket'].close()
+            player2['socket'].close()
+            player3['socket'].close()
+            player4['socket'].close()
             print('Game Interrupted')
             break
 
@@ -101,21 +133,21 @@ def game_session_2v2(player1, player2, player3, player4):
             winner['blue' if message3 == end_message[0] else 'red' if message3 == end_message[1] else 'none'] += 1
             winner['blue' if message4 == end_message[0] else 'red' if message4 == end_message[1] else 'none'] += 1
 
-            player1.close()
-            player2.close()
-            player3.close()
-            player4.close()
+            player1['socket'].close()
+            player2['socket'].close()
+            player3['socket'].close()
+            player4['socket'].close()
 
             winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
-            print(f'Game Ended. Winner: {winner}')
+            print(f"Game Ended. Winner: {player1['username'] if winner == 'blue' else player3['username'] if winner == 'red' else 'None'} & {player2['username'] if winner == 'blue' else player4['username'] if winner == 'red' else 'None'}")
             break
 
         message = encode([decode(message1), decode(message2), decode(message3), decode(message4)])
 
-        send(player1, message)
-        send(player2, message)
-        send(player3, message)
-        send(player4, message)
+        send(player1['socket'], message)
+        send(player2['socket'], message)
+        send(player3['socket'], message)
+        send(player4['socket'], message)
 
 
 SERVER_IP = "0.0.0.0"
@@ -133,28 +165,54 @@ print(f"Server started at {SERVER_IP}:{SERVER_PORT}")
 
 while True:
     connection, address = server_socket.accept()
-    connection.settimeout(3)
+    connection.settimeout(1)
     message = receive(connection)[0]
     if message == 0:
         connection_type = None
         connection.close()
     else:
+        # Check for different types of connection
         connection_type = decode(message)
-        if connection_type == '1v1':
-            queue_1v1.append([connection, address])
-        elif connection_type == '2v2':
-            queue_2v2.append([connection, address])
-        print(f"Player connected: {address}")
+        # 1v1 battles
+        if connection_type[0:3] == '1v1':
+            _, username, password = connection_type.split(':')
+            status = check_login(username, password)
+            if status:
+                queue_1v1.append({'socket': connection, 'ip': address, 'username': username})
+                print(f"{username} connected for 1v1")
+            else:
+                send(connection, encode('login-fail'))
+                connection.close()
+        # 2v2 battles
+        elif connection_type[0:3] == '2v2':
+            _, username, password = connection_type.split(':')
+            status = check_login(username, password)
+            if status:
+                queue_2v2.append({'socket': connection, 'ip': address, 'username': username})
+                print(f"{username} connected for 2v2")
+            else:
+                send(connection, encode('login-fail'))
+                connection.close()
+        # Security check login
+        elif connection_type[0:5] == 'login':
+            _, username, password = connection_type.split(':')
+            status = check_login(username, password)
+            send(connection, encode('login-success' if status else 'login-fail'))
+            print(f'{username} security check: {status}')
+            connection.close()
+        # Anything else
+        else:
+            connection.close()
 
-    if connection_type == '1v1':
+    if connection_type[0:3] == '1v1':
         if len(queue_1v1) >= 2:
             players = []
             i = 0
             while len(players) < 2 <= len(queue_1v1):
-                send(queue_1v1[i][0], encode('check'))
-                message = receive(queue_1v1[i][0])[0]
+                send(queue_1v1[i]['socket'], encode('check'))
+                message = receive(queue_1v1[i]['socket'])[0]
                 if message == 0:
-                    print(f'Player {queue_1v1[i][1]} disconnected')
+                    print(f"{queue_1v1[i]['username']} disconnected")
                     queue_1v1.remove(queue_1v1[i])
                 else:
                     players.append(queue_1v1[i])
@@ -166,21 +224,21 @@ while True:
 
                 map_final = random.randint(1, 15)
 
-                send(players[0][0], encode(f"blue:{map_final}"))
-                send(players[1][0], encode(f"red:{map_final}"))
+                send(players[0]['socket'], encode(f"blue:{map_final}"))
+                send(players[1]['socket'], encode(f"red:{map_final}"))
 
-                print(f"Matched {players[0][1]} <--> {players[1][1]}")
-                threading.Thread(target=game_session_1v1, args=(players[0][0], players[1][0]), daemon=True).start()
+                print(f"Matched {players[0]['username']} <--> {players[1]['username']}")
+                threading.Thread(target=game_session_1v1, args=(players[0], players[1]), daemon=True).start()
 
-    if connection_type == '2v2':
+    if connection_type[0:3] == '2v2':
         if len(queue_2v2) >= 4:
             players = []
             i = 0
             while len(players) < 4 <= len(queue_2v2):
-                send(queue_2v2[i][0], encode('check'))
-                message = receive(queue_2v2[i][0])[0]
+                send(queue_2v2[i]['socket'], encode('check'))
+                message = receive(queue_2v2[i]['socket'])[0]
                 if message == 0:
-                    print(f'Player {queue_2v2[i][1]} disconnected')
+                    print(f"{queue_2v2[i]['username']} disconnected")
                     queue_2v2.remove(queue_2v2[i])
                 else:
                     players.append(queue_2v2[i])
@@ -192,12 +250,12 @@ while True:
                 queue_2v2.remove(players[2])
                 queue_2v2.remove(players[3])
 
-                map_final = random.randint(1, 9)
+                map_final = random.randint(1, 15)
 
-                send(players[0][0], encode(f"blue:{map_final}"))
-                send(players[1][0], encode(f"blue:{map_final}"))
-                send(players[2][0], encode(f"red:{map_final}"))
-                send(players[3][0], encode(f"red:{map_final}"))
+                send(players[0]['socket'], encode(f"blue:{map_final}"))
+                send(players[1]['socket'], encode(f"blue:{map_final}"))
+                send(players[2]['socket'], encode(f"red:{map_final}"))
+                send(players[3]['socket'], encode(f"red:{map_final}"))
 
-                print(f"Matched {players[0][1]} & {players[1][1]} <--> {players[2][1]} & {players[3][1]}")
-                threading.Thread(target=game_session_2v2, args=(players[0][0], players[1][0], players[2][0], players[3][0]), daemon=True).start()
+                print(f"Matched {players[0]['username']} & {players[1]['username']} <--> {players[2]['username']} & {players[3]['username']}")
+                threading.Thread(target=game_session_2v2, args=(players[0], players[1], players[2], players[3]), daemon=True).start()
