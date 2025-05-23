@@ -185,48 +185,46 @@ print(f"Server started at {SERVER_IP}:{SERVER_PORT}")
 
 while True:
     connection, address = server_socket.accept()
+    connection_type = None
     connection.settimeout(1)
     message = receive(connection)[0]
     if message == 0:
-        connection_type = None
         connection.close()
     else:
         # Check for different types of connection
-        connection_type = decode(message)
-        # 1v1 battles
-        if connection_type[0:3] == '1v1':
-            _, username, password = connection_type.split(':')
+        message = decode(message)
+        parts = message.strip().split(':')
+        if len(parts) == 3:
+            connection_type, username, password = parts
+
             status = check_login(username, password)
-            if status and username not in online_users:
-                online_users.add(username)
-                queue_1v1.append({'socket': connection, 'ip': address, 'username': username})
-                print(f"{username} connected for 1v1")
-            else:
-                send(connection, encode('login-fail'))
+
+            if connection_type == 'login':
+                send(connection, encode('login-success' if status else 'login-fail'))
+                print(f'{username} security check: {status}')
                 connection.close()
-        # 2v2 battles
-        elif connection_type[0:3] == '2v2':
-            _, username, password = connection_type.split(':')
-            status = check_login(username, password)
-            if status and username not in online_users:
-                online_users.add(username)
-                queue_2v2.append({'socket': connection, 'ip': address, 'username': username})
-                print(f"{username} connected for 2v2")
+
             else:
-                send(connection, encode('login-fail'))
-                connection.close()
-        # Security check login
-        elif connection_type[0:5] == 'login':
-            _, username, password = connection_type.split(':')
-            status = check_login(username, password)
-            send(connection, encode('login-success' if status else 'login-fail'))
-            print(f'{username} security check: {status}')
-            connection.close()
-        # Anything else
+                if status and username not in online_users:
+                    online_users.add(username)
+                    if connection_type == '1v1':
+                        queue_1v1.append({'socket': connection, 'ip': address, 'username': username})
+                        print(f"{username} connected for 1v1")
+                    elif connection_type == '2v2':
+                        queue_2v2.append({'socket': connection, 'ip': address, 'username': username})
+                        print(f"{username} connected for 2v2")
+                    else:
+                        online_users.discard(username)
+                        connection.close()
+
+                else:
+                    send(connection, encode('login-fail'))
+                    connection.close()
+
         else:
             connection.close()
 
-    if connection_type[0:3] == '1v1':
+    if connection_type == '1v1':
         if len(queue_1v1) >= 2:
             players = []
             i = 0
@@ -236,6 +234,7 @@ while True:
                 if message == 0:
                     print(f"{queue_1v1[i]['username']} disconnected")
                     online_users.discard(queue_1v1[i]['username'])
+                    queue_1v1[i]['socket'].close()
                     queue_1v1.remove(queue_1v1[i])
                 else:
                     players.append(queue_1v1[i])
@@ -253,7 +252,7 @@ while True:
                 print(f"Matched {players[0]['username']} <--> {players[1]['username']}")
                 threading.Thread(target=game_session_1v1, args=(players[0], players[1]), daemon=True).start()
 
-    if connection_type[0:3] == '2v2':
+    if connection_type == '2v2':
         if len(queue_2v2) >= 4:
             players = []
             i = 0
@@ -263,6 +262,7 @@ while True:
                 if message == 0:
                     print(f"{queue_2v2[i]['username']} disconnected")
                     online_users.discard(queue_2v2[i]['username'])
+                    queue_1v1[i]['socket'].close()
                     queue_2v2.remove(queue_2v2[i])
                 else:
                     players.append(queue_2v2[i])
@@ -283,3 +283,4 @@ while True:
 
                 print(f"Matched {players[0]['username']} & {players[1]['username']} <--> {players[2]['username']} & {players[3]['username']}")
                 threading.Thread(target=game_session_2v2, args=(players[0], players[1], players[2], players[3]), daemon=True).start()
+
