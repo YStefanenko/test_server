@@ -44,7 +44,7 @@ def receive(connection):
 
 
 def check_login(username, password):
-    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
+    conn = sqlite3.connect('database.db')
     c = conn.cursor()
     c.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
     result = c.fetchone()
@@ -58,7 +58,7 @@ def check_login(username, password):
 
 
 def score_game(winner, loser):
-    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
+    conn = sqlite3.connect('database.db')
     c = conn.cursor()
     c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (winner,))
     c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (loser,))
@@ -78,8 +78,13 @@ def game_session_1v1(player1, player2):
                 send(player2['socket'], encode('red'))
             else:
                 send(player1['socket'], encode('blue'))
+
             player1['socket'].close()
             player2['socket'].close()
+
+            online_users.discard(player1['username'])
+            online_users.discard(player2['username'])
+
             print('Game Interrupted')
             break
 
@@ -93,6 +98,9 @@ def game_session_1v1(player1, player2):
 
             player1['socket'].close()
             player2['socket'].close()
+
+            online_users.discard(player1['username'])
+            online_users.discard(player2['username'])
 
             if winner == 'blue':
                 score_game(player1['username'], player2['username'])
@@ -119,6 +127,12 @@ def game_session_2v2(player1, player2, player3, player4):
             player2['socket'].close()
             player3['socket'].close()
             player4['socket'].close()
+
+            online_users.discard(player1['username'])
+            online_users.discard(player2['username'])
+            online_users.discard(player3['username'])
+            online_users.discard(player4['username'])
+
             print('Game Interrupted')
             break
 
@@ -138,6 +152,12 @@ def game_session_2v2(player1, player2, player3, player4):
             player3['socket'].close()
             player4['socket'].close()
 
+            online_users.discard(player1['username'])
+            online_users.discard(player2['username'])
+            online_users.discard(player3['username'])
+            online_users.discard(player4['username'])
+
+
             winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
             print(f"Game Ended. Winner: {player1['username'] if winner == 'blue' else player3['username'] if winner == 'red' else 'None'} & {player2['username'] if winner == 'blue' else player4['username'] if winner == 'red' else 'None'}")
             break
@@ -155,7 +175,7 @@ SERVER_PORT = 9056
 
 queue_1v1 = []
 queue_2v2 = []
-
+online_users = set()
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((SERVER_IP, SERVER_PORT))
@@ -177,7 +197,8 @@ while True:
         if connection_type[0:3] == '1v1':
             _, username, password = connection_type.split(':')
             status = check_login(username, password)
-            if status:
+            if status and username not in online_users:
+                online_users.add(username)
                 queue_1v1.append({'socket': connection, 'ip': address, 'username': username})
                 print(f"{username} connected for 1v1")
             else:
@@ -187,7 +208,8 @@ while True:
         elif connection_type[0:3] == '2v2':
             _, username, password = connection_type.split(':')
             status = check_login(username, password)
-            if status:
+            if status and username not in online_users:
+                online_users.add(username)
                 queue_2v2.append({'socket': connection, 'ip': address, 'username': username})
                 print(f"{username} connected for 2v2")
             else:
@@ -213,6 +235,7 @@ while True:
                 message = receive(queue_1v1[i]['socket'])[0]
                 if message == 0:
                     print(f"{queue_1v1[i]['username']} disconnected")
+                    online_users.discard(queue_1v1[i]['username'])
                     queue_1v1.remove(queue_1v1[i])
                 else:
                     players.append(queue_1v1[i])
@@ -239,6 +262,7 @@ while True:
                 message = receive(queue_2v2[i]['socket'])[0]
                 if message == 0:
                     print(f"{queue_2v2[i]['username']} disconnected")
+                    online_users.discard(queue_2v2[i]['username'])
                     queue_2v2.remove(queue_2v2[i])
                 else:
                     players.append(queue_2v2[i])
