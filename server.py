@@ -9,7 +9,7 @@ queue_1v1 = asyncio.Queue()
 queue_2v2 = asyncio.Queue()
 online_users = set()
 online_users_lock = asyncio.Lock()
-database_name = 'database.db'
+database_name = '/home/ec2-user/test_server/database.db'
 
 
 class Player:
