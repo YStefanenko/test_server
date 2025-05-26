@@ -1,286 +1,337 @@
-import socket
-import random
+import asyncio
 import struct
 import pickle
-import threading
 import sqlite3
 import bcrypt
-import numpy
+import random
+
+queue_1v1 = asyncio.Queue()
+queue_2v2 = asyncio.Queue()
+online_users = set()
+online_users_lock = asyncio.Lock()
+database_name = 'database.db'
 
 
-def encode(message):
-    message = pickle.dumps(message)
-    message = struct.pack('>I', len(message)) + message
-    return message
+class Player:
+    def __init__(self, username, reader, writer):
+        self.username = username
+        self.reader = reader
+        self.writer = writer
 
 
-def decode(message):
-    message = pickle.loads(message)
-    return message
+async def add_online_user(username):
+    async with online_users_lock:
+        online_users.add(username)
 
 
-def send(player_socket, message):
+async def remove_online_user(username):
+    async with online_users_lock:
+        online_users.discard(username)
+
+
+async def is_user_online(username):
+    async with online_users_lock:
+        return username in online_users
+
+
+async def read_pickle(reader):
     try:
-        player_socket.sendall(message)
-        return 1
-
-    except socket.error or socket.timeout as e:
-        print('error occurred when sending a message')
+        length_bytes = await reader.readexactly(4)
+        length = struct.unpack('>I', length_bytes)[0]
+        data = await reader.readexactly(length)
+        return data
+    except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
+        print(f"[ERROR] read_pickle: {e}")
         return 0
 
 
-def receive(connection):
+async def send_pickle(writer, message):
     try:
-        prefix = connection.recv(4)
-        if not prefix:
-            return 0, 0
-        length = struct.unpack('>I', prefix)[0]
-        message = connection.recv(length)
-        return message, prefix
-
-    except socket.error or socket.timeout as e:
-        print('error occurred when receiving a message')
-        return 0, 0
+        length_prefix = struct.pack('>I', len(message))
+        writer.write(length_prefix + message)
+        await writer.drain()
+        return 1
+    except (ConnectionResetError, BrokenPipeError, Exception) as e:
+        print(f"[ERROR] send_pickle: {e}")
+        return 0
 
 
-def check_login(username, password):
-    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
-    c = conn.cursor()
-    c.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
-    result = c.fetchone()
-    conn.close()
+async def check_login(username, password):
+    loop = asyncio.get_running_loop()
 
-    if result:
-        stored_hash = result[0]
-        if bcrypt.checkpw(password.encode(), stored_hash):
-            return 1
-    return 0
+    def blocking_login():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        conn.close()
 
+        if result:
+            stored_hash = result[0]
+            return bcrypt.checkpw(password.encode(), stored_hash)
+        return False
 
-def score_game(winner, loser):
-    conn = sqlite3.connect('/home/ec2-user/test_server/database.db')
-    c = conn.cursor()
-    c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (winner,))
-    c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (loser,))
-    conn.commit()
-    conn.close()
-    print('Scores updated')
+    result = await loop.run_in_executor(None, blocking_login)
+    return 1 if result else 0
 
 
-def game_session_1v1(player1, player2):
-    end_message = [pickle.dumps('blue'), pickle.dumps('red')]
-    while True:
-        message1, prefix1 = receive(player1['socket'])
-        message2, prefix2 = receive(player2['socket'])
+async def score_game(winner, loser):
+    loop = asyncio.get_running_loop()
 
-        if message1 == 0 or message2 == 0:
-            if message1 == 0:
-                send(player2['socket'], encode('red'))
-            else:
-                send(player1['socket'], encode('blue'))
+    def blocking_score():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (winner,))
+        c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (loser,))
+        conn.commit()
+        conn.close()
 
-            player1['socket'].close()
-            player2['socket'].close()
-
-            online_users.discard(player1['username'])
-            online_users.discard(player2['username'])
-
-            print('Game Interrupted')
-            break
-
-        if message1 in end_message or message2 in end_message:
-            if message1 == end_message[0] and message2 == end_message[0]:
-                winner = decode(message1)
-            elif message1 == end_message[1] and message2 == end_message[1]:
-                winner = decode(message1)
-            else:
-                winner = None
-
-            player1['socket'].close()
-            player2['socket'].close()
-
-            online_users.discard(player1['username'])
-            online_users.discard(player2['username'])
-
-            if winner == 'blue':
-                score_game(player1['username'], player2['username'])
-            elif winner == 'red':
-                score_game(player2['username'], player1['username'])
-
-            print(f"Game Ended. Winner: {player1['username'] if winner == 'blue' else player2['username'] if winner == 'red' else 'None'}")
-            break
-
-        send(player1['socket'], prefix2 + message2)
-        send(player2['socket'], prefix1 + message1)
+    await loop.run_in_executor(None, blocking_score)
 
 
-def game_session_2v2(player1, player2, player3, player4):
-    end_message = [pickle.dumps('blue'), pickle.dumps('red')]
-    while True:
-        message1, prefix1 = receive(player1['socket'])
-        message2, prefix2 = receive(player2['socket'])
-        message3, prefix3 = receive(player3['socket'])
-        message4, prefix4 = receive(player4['socket'])
-
-        if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
-            player1['socket'].close()
-            player2['socket'].close()
-            player3['socket'].close()
-            player4['socket'].close()
-
-            online_users.discard(player1['username'])
-            online_users.discard(player2['username'])
-            online_users.discard(player3['username'])
-            online_users.discard(player4['username'])
-
-            print('Game Interrupted')
-            break
-
-        if message1 in end_message or message2 in end_message or message3 in end_message or message4 in end_message:
-            winner = {
-                'red': 0,
-                'blue': 0,
-                'none': 0
-            }
-            winner['blue' if message1 == end_message[0] else 'red' if message1 == end_message[1] else 'none'] += 1
-            winner['blue' if message2 == end_message[0] else 'red' if message2 == end_message[1] else 'none'] += 1
-            winner['blue' if message3 == end_message[0] else 'red' if message3 == end_message[1] else 'none'] += 1
-            winner['blue' if message4 == end_message[0] else 'red' if message4 == end_message[1] else 'none'] += 1
-
-            player1['socket'].close()
-            player2['socket'].close()
-            player3['socket'].close()
-            player4['socket'].close()
-
-            online_users.discard(player1['username'])
-            online_users.discard(player2['username'])
-            online_users.discard(player3['username'])
-            online_users.discard(player4['username'])
+async def disconnect(player):
+    print(f"[DISCONNECT] {player.username} disconnected")
+    await remove_online_user(player.username)
+    try:
+        player.writer.close()
+        await player.writer.wait_closed()
+    except Exception as e:
+        print(f"[ERROR] disconnect: {e}")
 
 
-            winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
-            print(f"Game Ended. Winner: {player1['username'] if winner == 'blue' else player3['username'] if winner == 'red' else 'None'} & {player2['username'] if winner == 'blue' else player4['username'] if winner == 'red' else 'None'}")
-            break
+async def game_session_1v1(player1, player2):
+    end_message = {pickle.dumps('blue'), pickle.dumps('red')}
+    try:
+        map_final = random.randint(1, 15)
+        await send_pickle(player1.writer, pickle.dumps(f"blue:{map_final}"))
+        await send_pickle(player2.writer, pickle.dumps(f"red:{map_final}"))
+        print(f"[GAME] 1v1 started: {player1.username} vs {player2.username}")
 
-        message = encode([decode(message1), decode(message2), decode(message3), decode(message4)])
+        while True:
+            message1 = await read_pickle(player1.reader)
+            message2 = await read_pickle(player2.reader)
 
-        send(player1['socket'], message)
-        send(player2['socket'], message)
-        send(player3['socket'], message)
-        send(player4['socket'], message)
+            if message1 == 0 and message2 == 0:
+                print(f"[ERROR] game_session_1v1 is interrupted")
+                break
+            elif message1 == 0:
+                await send_pickle(player2.writer, pickle.dumps('red'))
+                print(f"[ERROR] game_session_1v1 is interrupted")
+                break
+            elif message2 == 0:
+                await send_pickle(player1.writer, pickle.dumps('blue'))
+                print(f"[ERROR] game_session_1v1 is interrupted")
+                break
 
+            if message1 in end_message or message2 in end_message:
+                decoded1 = pickle.loads(message1) if message1 in end_message else None
+                decoded2 = pickle.loads(message2) if message2 in end_message else None
 
-SERVER_IP = "0.0.0.0"
-SERVER_PORT = 9056
-
-queue_1v1 = []
-queue_2v2 = []
-online_users = set()
-
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind((SERVER_IP, SERVER_PORT))
-
-server_socket.listen()
-print(f"Server started at {SERVER_IP}:{SERVER_PORT}")
-
-while True:
-    connection, address = server_socket.accept()
-    connection_type = None
-    connection.settimeout(1)
-    message = receive(connection)[0]
-    if message == 0:
-        connection.close()
-    else:
-        # Check for different types of connection
-        message = decode(message)
-        parts = message.strip().split(':')
-        if len(parts) == 3:
-            connection_type, username, password = parts
-
-            status = check_login(username, password)
-
-            if connection_type == 'login':
-                send(connection, encode('login-success' if status else 'login-fail'))
-                print(f'{username} security check: {status}')
-                connection.close()
-
-            else:
-                if status and username not in online_users:
-                    online_users.add(username)
-                    if connection_type == '1v1':
-                        queue_1v1.append({'socket': connection, 'ip': address, 'username': username})
-                        print(f"{username} connected for 1v1")
-                    elif connection_type == '2v2':
-                        queue_2v2.append({'socket': connection, 'ip': address, 'username': username})
-                        print(f"{username} connected for 2v2")
-                    else:
-                        online_users.discard(username)
-                        connection.close()
-
+                if decoded1 == decoded2:
+                    winner = decoded1
                 else:
-                    send(connection, encode('login-fail'))
-                    connection.close()
+                    winner = 'None'
 
+                if winner == 'blue':
+                    await score_game(player1.username, player2.username)
+                elif winner == 'red':
+                    await score_game(player2.username, player1.username)
+                print(f"[GAME END] 1v1 winner: {player1.username if winner == 'blue' else player2.username if winner == 'red' else 'None'}")
+                break
+
+            await send_pickle(player1.writer, message2)
+            await send_pickle(player2.writer, message1)
+
+    except Exception as e:
+        print(f"[ERROR] game_session_1v1: {e}")
+    finally:
+        await disconnect(player1)
+        await disconnect(player2)
+
+
+async def game_session_2v2(player1, player2, player3, player4):
+    end_message = {pickle.dumps('blue'), pickle.dumps('red')}
+    try:
+        map_final = random.randint(1, 15)
+        await send_pickle(player1.writer, pickle.dumps(f"blue:{map_final}"))
+        await send_pickle(player2.writer, pickle.dumps(f"blue:{map_final}"))
+        await send_pickle(player3.writer, pickle.dumps(f"red:{map_final}"))
+        await send_pickle(player4.writer, pickle.dumps(f"red:{map_final}"))
+        print(f"[GAME] 2v2 started: {player1.username} & {player2.username} vs {player3.username} & {player4.username}")
+        while True:
+            message1 = await read_pickle(player1.reader)
+            message2 = await read_pickle(player2.reader)
+            message3 = await read_pickle(player3.reader)
+            message4 = await read_pickle(player4.reader)
+
+            if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
+                print(f"[ERROR] game_session_2v2 is interrupted")
+                break
+
+            if message1 in end_message or message2 in end_message or message3 in end_message or message4 in end_message:
+                winner = {
+                    'red': 0,
+                    'blue': 0,
+                    'none': 0
+                }
+                decoded1 = pickle.loads(message1) if message1 in end_message else 'none'
+                decoded2 = pickle.loads(message2) if message2 in end_message else 'none'
+                decoded3 = pickle.loads(message3) if message3 in end_message else 'none'
+                decoded4 = pickle.loads(message4) if message4 in end_message else 'none'
+
+                winner[decoded1] += 1
+                winner[decoded2] += 1
+                winner[decoded3] += 1
+                winner[decoded4] += 1
+
+                winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
+                print(f"[GAME END] 2v2 winner: {player1.username if winner == 'blue' else player3.username if winner == 'red' else 'None'} & {player2.username if winner == 'blue' else player4.username if winner == 'red' else 'None'}")
+
+                break
+
+            message = pickle.dumps([pickle.loads(message1), pickle.loads(message2), pickle.loads(message3), pickle.loads(message4)])
+
+            await send_pickle(player1.writer, message)
+            await send_pickle(player2.writer, message)
+            await send_pickle(player3.writer, message)
+            await send_pickle(player4.writer, message)
+
+    except Exception as e:
+        print(f"[ERROR] game_session_2v2: {e}")
+
+    finally:
+        await disconnect(player1)
+        await disconnect(player2)
+        await disconnect(player3)
+        await disconnect(player4)
+
+
+async def is_connected(player):
+    try:
+        if await send_pickle(player.writer, pickle.dumps("check")) == 0:
+            return False
+
+        response = await asyncio.wait_for(read_pickle(player.reader), timeout=1)
+
+        return pickle.loads(response) == "check"
+
+    except Exception as e:
+        print(f"[ERROR] is_connected: {e}")
+        return False
+
+
+async def matchmaking_1v1():
+    print(f"Matchmaking 1v1 running")
+    while True:
+        player1 = await queue_1v1.get()
+        player2 = await queue_1v1.get()
+
+        if await is_connected(player1) and await is_connected(player2):
+            asyncio.create_task(game_session_1v1(player1, player2))
         else:
-            connection.close()
+            if await is_connected(player1):
+                await queue_1v1.put(player1)
+            else:
+                await disconnect(player1)
 
-    if connection_type == '1v1':
-        if len(queue_1v1) >= 2:
-            players = []
-            i = 0
-            while len(players) < 2 <= len(queue_1v1):
-                send(queue_1v1[i]['socket'], encode('check'))
-                message = receive(queue_1v1[i]['socket'])[0]
-                if message == 0:
-                    print(f"{queue_1v1[i]['username']} disconnected")
-                    online_users.discard(queue_1v1[i]['username'])
-                    queue_1v1[i]['socket'].close()
-                    queue_1v1.remove(queue_1v1[i])
-                else:
-                    players.append(queue_1v1[i])
-                    i += 1
+            if await is_connected(player2):
+                await queue_1v1.put(player2)
+            else:
+                await disconnect(player2)
 
-            if len(players) == 2:
-                queue_1v1.remove(players[0])
-                queue_1v1.remove(players[1])
+        await asyncio.sleep(0.1)
 
-                map_final = random.randint(1, 15)
 
-                send(players[0]['socket'], encode(f"blue:{map_final}"))
-                send(players[1]['socket'], encode(f"red:{map_final}"))
+async def matchmaking_2v2():
+    print(f"Matchmaking 2v2 running")
+    while True:
+        player1 = await queue_2v2.get()
+        player2 = await queue_2v2.get()
+        player3 = await queue_2v2.get()
+        player4 = await queue_2v2.get()
 
-                print(f"Matched {players[0]['username']} <--> {players[1]['username']}")
-                threading.Thread(target=game_session_1v1, args=(players[0], players[1]), daemon=True).start()
+        players = [player1, player2, player3, player4]
+        alive = []
 
-    if connection_type == '2v2':
-        if len(queue_2v2) >= 4:
-            players = []
-            i = 0
-            while len(players) < 4 <= len(queue_2v2):
-                send(queue_2v2[i]['socket'], encode('check'))
-                message = receive(queue_2v2[i]['socket'])[0]
-                if message == 0:
-                    print(f"{queue_2v2[i]['username']} disconnected")
-                    online_users.discard(queue_2v2[i]['username'])
-                    queue_1v1[i]['socket'].close()
-                    queue_2v2.remove(queue_2v2[i])
-                else:
-                    players.append(queue_2v2[i])
-                    i += 1
+        for player in players:
+            if await is_connected(player):
+                alive.append(player)
+            else:
+                await disconnect(player)
 
-            if len(players) == 4:
-                queue_2v2.remove(players[0])
-                queue_2v2.remove(players[1])
-                queue_2v2.remove(players[2])
-                queue_2v2.remove(players[3])
+        if len(alive) == 4:
+            asyncio.create_task(game_session_2v2(player1, player2, player3, player4))
+        else:
+            for player in alive:
+                await queue_2v2.put(player)
 
-                map_final = random.randint(1, 15)
+        await asyncio.sleep(0.1)
 
-                send(players[0]['socket'], encode(f"blue:{map_final}"))
-                send(players[1]['socket'], encode(f"blue:{map_final}"))
-                send(players[2]['socket'], encode(f"red:{map_final}"))
-                send(players[3]['socket'], encode(f"red:{map_final}"))
 
-                print(f"Matched {players[0]['username']} & {players[1]['username']} <--> {players[2]['username']} & {players[3]['username']}")
-                threading.Thread(target=game_session_2v2, args=(players[0], players[1], players[2], players[3]), daemon=True).start()
+async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    connection_type = None
+    player = None
 
+    try:
+        message = await read_pickle(reader)
+        if message == 0:
+            return
+
+        message = pickle.loads(message)
+        parts = message.strip().split(':')
+        if len(parts) != 3:
+            return
+
+        connection_type, username, password = parts
+
+        status = await check_login(username, password)
+        print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
+
+        if connection_type == 'login':
+            reply = 'login-success' if status else 'login-fail'
+            await send_pickle(writer, pickle.dumps(reply))
+            return
+
+        if status and not await is_user_online(username):
+            await add_online_user(username)
+            player = Player(username=username, reader=reader, writer=writer)
+
+            if connection_type == '1v1':
+                await queue_1v1.put(player)
+                print(f"[QUEUE] {username} joined 1v1 queue")
+            elif connection_type == '2v2':
+                await queue_2v2.put(player)
+                print(f"[QUEUE] {username} joined 2v2 queue")
+            else:
+                await remove_online_user(username)
+                print(f"[QUEUE] {username} failed to join queue (invalid state or already online)")
+        else:
+            await send_pickle(writer, pickle.dumps('login-fail'))
+
+    except Exception as e:
+        print(f"[ERROR] handle_client: {e}")
+
+
+    finally:
+        if player is None:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception as e:
+                print(f"[ERROR] handle_client: {e}")
+
+
+async def main():
+    server_ip = "0.0.0.0"
+    server_port = 9056
+
+    asyncio.create_task(matchmaking_1v1())
+    asyncio.create_task(matchmaking_2v2())
+    server = await asyncio.start_server(handle_client, server_ip, server_port)
+    print(f"Server started at {server_ip}:{server_port}")
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
