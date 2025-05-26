@@ -5,13 +5,6 @@ import sqlite3
 import bcrypt
 import random
 
-queue_1v1 = asyncio.Queue()
-queue_2v2 = asyncio.Queue()
-online_users = set()
-online_users_lock = asyncio.Lock()
-database_name = '/home/ec2-user/test_server/database.db'
-
-
 class Player:
     def __init__(self, username, reader, writer):
         self.username = username
@@ -324,6 +317,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 async def main():
     server_ip = "0.0.0.0"
     server_port = 9056
+
+    queue_1v1 = asyncio.Queue()
+    queue_2v2 = asyncio.Queue()
+    online_users = set()
+    online_users_lock = asyncio.Lock()
+    database_name = '/home/ec2-user/test_server/database.db'
 
     asyncio.create_task(matchmaking_1v1())
     asyncio.create_task(matchmaking_2v2())
