@@ -96,7 +96,7 @@ async def disconnect(player):
         player.writer.close()
         await player.writer.wait_closed()
     except Exception as e:
-        print(f"[ERROR] disconnect: {e}")
+        print(f"[ERROR] disconnect() for {player.username if player else 'Unknown'}: {e}")
 
 
 async def game_session_1v1(player1, player2):
@@ -116,11 +116,13 @@ async def game_session_1v1(player1, player2):
                 break
             elif message1 == 0:
                 await send_pickle(player2.writer, pickle.dumps('red'))
-                print(f"[ERROR] game_session_1v1 is interrupted")
+                await score_game(player2.username, player1.username)
+                print(f"[ERROR] game_session_1v1 is interrupted by {player1.username}")
                 break
             elif message2 == 0:
                 await send_pickle(player1.writer, pickle.dumps('blue'))
-                print(f"[ERROR] game_session_1v1 is interrupted")
+                await score_game(player1.username, player2.username)
+                print(f"[ERROR] game_session_1v1 is interrupted by {player2.username}")
                 break
 
             if message1 in end_message or message2 in end_message:
@@ -223,49 +225,35 @@ async def is_connected(player):
 async def matchmaking_1v1():
     print(f"Matchmaking 1v1 running")
     while True:
-        player1 = await queue_1v1.get()
-        player2 = await queue_1v1.get()
-
-        if await is_connected(player1) and await is_connected(player2):
-            asyncio.create_task(game_session_1v1(player1, player2))
-        else:
-            if await is_connected(player1):
-                await queue_1v1.put(player1)
-            else:
-                await disconnect(player1)
-
-            if await is_connected(player2):
-                await queue_1v1.put(player2)
-            else:
-                await disconnect(player2)
-
-        await asyncio.sleep(0.1)
+        players = []
+        while len(players) < 2:
+            try:
+                player = queue_1v1.get_nowait()
+                players.append(player)
+            except asyncio.QueueEmpty:
+                for i in range(len(players) - 1, -1, -1):
+                    if not await is_connected(players[i]):
+                        await disconnect(players[i])
+                        players.pop(i)
+                await asyncio.sleep(1)
+        asyncio.create_task(game_session_1v1(players[0], players[1]))
 
 
 async def matchmaking_2v2():
     print(f"Matchmaking 2v2 running")
     while True:
-        player1 = await queue_2v2.get()
-        player2 = await queue_2v2.get()
-        player3 = await queue_2v2.get()
-        player4 = await queue_2v2.get()
-
-        players = [player1, player2, player3, player4]
-        alive = []
-
-        for player in players:
-            if await is_connected(player):
-                alive.append(player)
-            else:
-                await disconnect(player)
-
-        if len(alive) == 4:
-            asyncio.create_task(game_session_2v2(player1, player2, player3, player4))
-        else:
-            for player in alive:
-                await queue_2v2.put(player)
-
-        await asyncio.sleep(0.1)
+        players = []
+        while len(players) < 4:
+            try:
+                player = queue_2v2.get_nowait()
+                players.append(player)
+            except asyncio.QueueEmpty:
+                for i in range(len(players) - 1, -1, -1):
+                    if not await is_connected(players[i]):
+                        await disconnect(players[i])
+                        players.pop(i)
+                await asyncio.sleep(1)
+        asyncio.create_task(game_session_2v2(players[0], players[1], players[2], players[3]))
 
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -304,13 +292,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 print(f"[QUEUE] {username} joined 2v2 queue")
             else:
                 await remove_online_user(username)
+                player = None
                 print(f"[QUEUE] {username} failed to join queue (invalid state or already online)")
         else:
             await send_pickle(writer, pickle.dumps('login-fail'))
 
     except Exception as e:
         print(f"[ERROR] handle_client: {e}")
-
 
     finally:
         if player is None:
