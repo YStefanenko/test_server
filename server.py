@@ -36,11 +36,11 @@ async def is_user_online(username):
 
 async def read_pickle(reader):
     try:
-        length_bytes = await reader.readexactly(4)
+        length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=5)
         length = struct.unpack('>I', length_bytes)[0]
-        data = await reader.readexactly(length)
+        data = await asyncio.wait_for(reader.readexactly(length), timeout=5)
         return data
-    except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
+    except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
         print(f"[ERROR] read_pickle: {e}")
         return 0
 
@@ -49,9 +49,9 @@ async def send_pickle(writer, message):
     try:
         length_prefix = struct.pack('>I', len(message))
         writer.write(length_prefix + message)
-        await writer.drain()
+        await asyncio.wait_for(writer.drain(), timeout=5)
         return 1
-    except (ConnectionResetError, BrokenPipeError, Exception) as e:
+    except (asyncio.TimeoutError, ConnectionResetError, BrokenPipeError, Exception) as e:
         print(f"[ERROR] send_pickle: {e}")
         return 0
 
