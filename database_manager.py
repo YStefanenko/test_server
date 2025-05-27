@@ -2,7 +2,7 @@ import sqlite3
 import bcrypt
 import argparse
 
-DB_NAME = '/home/ec2-user/test_server/database.db'
+DB_NAME = 'database.db'
 
 
 def init_db():
