@@ -6,7 +6,7 @@ import bcrypt
 import random
 
 online_users = set()
-database_name = '/home/ec2-user/test_server/database.db'
+database_name = 'database.db'
 queue_1v1 = None
 queue_2v2 = None
 online_users_lock = None
