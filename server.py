@@ -266,11 +266,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             return
 
         message = pickle.loads(message)
-        parts = message.strip().split(':')
-        if len(parts) != 3:
-            return
 
-        connection_type, username, password = parts
+        connection_type = message['type']
+        username = message['username']
+        password = message['password']
 
         status = await check_login(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
