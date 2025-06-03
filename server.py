@@ -89,6 +89,25 @@ async def score_game(winner, loser):
     await loop.run_in_executor(None, blocking_score)
 
 
+async def get_score(username):
+    loop = asyncio.get_running_loop()
+
+    def blocking_score():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT score FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        conn.close()
+        return result
+
+    score = await loop.run_in_executor(None, blocking_score)
+
+    if score is None:
+        return 0
+    else:
+        return str(score[0])
+
+
 async def disconnect(player):
     print(f"[DISCONNECT] {player.username} disconnected")
     await remove_online_user(player.username)
@@ -100,7 +119,7 @@ async def disconnect(player):
 
 
 async def game_session_1v1(player1, player2):
-    end_message = {pickle.dumps('blue'), pickle.dumps('red')}
+    end_message = [pickle.dumps('blue'), pickle.dumps('red'), pickle.dumps('surrender'), 0]
     try:
         map_final = random.randint(1, 15)
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
@@ -111,34 +130,29 @@ async def game_session_1v1(player1, player2):
             message1 = await read_pickle(player1.reader)
             message2 = await read_pickle(player2.reader)
 
-            if message1 == 0 and message2 == 0:
-                print(f"[ERROR] game_session_1v1 is interrupted")
-                break
-            elif message1 == 0:
-                await send_pickle(player2.writer, pickle.dumps('red'))
-                await score_game(player2.username, player1.username)
-                print(f"[ERROR] game_session_1v1 is interrupted by {player1.username}")
-                break
-            elif message2 == 0:
-                await send_pickle(player1.writer, pickle.dumps('blue'))
-                await score_game(player1.username, player2.username)
-                print(f"[ERROR] game_session_1v1 is interrupted by {player2.username}")
-                break
-
             if message1 in end_message or message2 in end_message:
-                decoded1 = pickle.loads(message1) if message1 in end_message else None
-                decoded2 = pickle.loads(message2) if message2 in end_message else None
 
-                if decoded1 == decoded2:
-                    winner = decoded1
-                else:
-                    winner = 'None'
+                if message1 == 0 or message2 == 0:
+                    print(f"[ERROR] game_session_1v1 is interrupted")
+                    break
 
-                if winner == 'blue':
+                if message2 == 0 or message2 == end_message[2]:
+                    await send_pickle(player1.writer, pickle.dumps('win'))
                     await score_game(player1.username, player2.username)
-                elif winner == 'red':
+                    print(f"[GAME END] 1v1 winner: {player1.username}")
+                elif message1 == 0 or message1 == end_message[2]:
+                    await send_pickle(player2.writer, pickle.dumps('win'))
                     await score_game(player2.username, player1.username)
-                print(f"[GAME END] 1v1 winner: {player1.username if winner == 'blue' else player2.username if winner == 'red' else 'None'}")
+                    print(f"[GAME END] 1v1 winner: {player2.username}")
+                elif message1 == end_message[0] and message2 == end_message[0]:
+                    await score_game(player1.username, player2.username)
+                    print(f"[GAME END] 1v1 winner: {player1.username}")
+                elif message1 == end_message[1] and message2 == end_message[1]:
+                    await score_game(player2.username, player1.username)
+                    print(f"[GAME END] 1v1 winner: {player2.username}")
+                else:
+                    print("[GAME END] 1v1 winner: No winner")
+
                 break
 
             await send_pickle(player1.writer, message2)
@@ -278,6 +292,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             reply = 'login-success' if status else 'login-fail'
             await send_pickle(writer, pickle.dumps(reply))
             return
+
+        elif connection_type == 'get-score':
+            score = await get_score(username)
+            if score:
+                await send_pickle(writer, pickle.dumps({'username': username, 'score': score}))
+            else:
+                await send_pickle(writer, pickle.dumps('get-score-fail'))
+            return score
 
         if status and not await is_user_online(username):
             await add_online_user(username)
