@@ -134,7 +134,6 @@ async def game_session_1v1(player1, player2):
 
                 if message1 == 0 or message2 == 0:
                     print(f"[ERROR] game_session_1v1 is interrupted")
-                    break
 
                 if message2 == 0 or message2 == end_message[2]:
                     await send_pickle(player1.writer, pickle.dumps('win'))
@@ -182,7 +181,6 @@ async def game_session_2v2(player1, player2, player3, player4):
 
             if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
                 print(f"[ERROR] game_session_2v2 is interrupted")
-                break
 
             if message1 in end_message or message2 in end_message or message3 in end_message or message4 in end_message:
                 winner = {
