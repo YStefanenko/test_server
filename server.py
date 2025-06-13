@@ -121,7 +121,7 @@ async def disconnect(player):
 async def game_session_1v1(player1, player2):
     end_message = [pickle.dumps('blue'), pickle.dumps('red'), pickle.dumps('surrender'), 0]
     try:
-        map_final = random.randint(1, 15)
+        map_final = random.randint(1, 30)
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
         await send_pickle(player2.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
         print(f"[GAME] 1v1 started: {player1.username} vs {player2.username}")
@@ -167,7 +167,7 @@ async def game_session_1v1(player1, player2):
 async def game_session_2v2(player1, player2, player3, player4):
     end_message = {pickle.dumps('blue'), pickle.dumps('red')}
     try:
-        map_final = random.randint(1, 15)
+        map_final = random.randint(1, 30)
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
         await send_pickle(player2.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
         await send_pickle(player3.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
