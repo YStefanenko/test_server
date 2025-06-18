@@ -4,6 +4,7 @@ import pickle
 import sqlite3
 import bcrypt
 import random
+import time
 
 online_users = set()
 database_name = 'database.db'
@@ -41,6 +42,24 @@ async def read_pickle(reader):
         data = await asyncio.wait_for(reader.readexactly(length), timeout=5)
         return data
     except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
+        print(f"[ERROR] read_pickle: {e}")
+        return 0
+
+async def receive_ingame(reader):
+    try:
+        async def read_full_message():
+            length_bytes = await reader.readexactly(4)
+            length = struct.unpack('>I', length_bytes)[0]
+            data = await reader.readexactly(length)
+            return pickle.loads(data)
+
+        data = await asyncio.wait_for(read_full_message(), timeout=0.5)
+        return data
+
+    except asyncio.TimeoutError:
+        return {}
+
+    except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
         print(f"[ERROR] read_pickle: {e}")
         return 0
 
@@ -119,7 +138,6 @@ async def disconnect(player):
 
 
 async def game_session_1v1(player1, player2):
-    end_message = [pickle.dumps('blue'), pickle.dumps('red'), pickle.dumps('surrender'), 0]
     try:
         map_final = random.randint(1, 30)
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
@@ -127,35 +145,42 @@ async def game_session_1v1(player1, player2):
         print(f"[GAME] 1v1 started: {player1.username} vs {player2.username}")
 
         while True:
-            message1 = await read_pickle(player1.reader)
-            message2 = await read_pickle(player2.reader)
+            start_time = time.monotonic()
+            data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader))
 
-            if message1 in end_message or message2 in end_message:
+            message1, message2 = data
+
+            if not (type(message1) is dict and type(message2) is dict):
 
                 if message1 == 0 or message2 == 0:
                     print(f"[ERROR] game_session_1v1 is interrupted")
 
-                if message2 == 0 or message2 == end_message[2]:
+                if message2 == 0 or message2 == 'surrender':
                     await send_pickle(player1.writer, pickle.dumps('win'))
                     await score_game(player1.username, player2.username)
                     print(f"[GAME END] 1v1 winner: {player1.username}")
-                elif message1 == 0 or message1 == end_message[2]:
+                elif message1 == 0 or message1 == 'surrender':
                     await send_pickle(player2.writer, pickle.dumps('win'))
                     await score_game(player2.username, player1.username)
                     print(f"[GAME END] 1v1 winner: {player2.username}")
-                elif message1 == end_message[0] and message2 == end_message[0]:
+                elif message1 == 'blue' and message2 == 'blue':
                     await score_game(player1.username, player2.username)
                     print(f"[GAME END] 1v1 winner: {player1.username}")
-                elif message1 == end_message[1] and message2 == end_message[1]:
+                elif message1 == 'red' and message2 == 'red':
                     await score_game(player2.username, player1.username)
                     print(f"[GAME END] 1v1 winner: {player2.username}")
                 else:
                     print("[GAME END] 1v1 winner: No winner")
-
                 break
 
-            await send_pickle(player1.writer, message2)
-            await send_pickle(player2.writer, message1)
+            else:
+                data = pickle.dumps(message1 | message2)
+                await send_pickle(player1.writer, data)
+                await send_pickle(player2.writer, data)
+
+            elapsed = time.monotonic() - start_time
+            if elapsed < 1.03:
+                await asyncio.sleep(1.03 - elapsed)
 
     except Exception as e:
         print(f"[ERROR] game_session_1v1: {e}")
@@ -165,7 +190,6 @@ async def game_session_1v1(player1, player2):
 
 
 async def game_session_2v2(player1, player2, player3, player4):
-    end_message = {pickle.dumps('blue'), pickle.dumps('red')}
     try:
         map_final = random.randint(1, 30)
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
@@ -174,41 +198,43 @@ async def game_session_2v2(player1, player2, player3, player4):
         await send_pickle(player4.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
         print(f"[GAME] 2v2 started: {player1.username} & {player2.username} vs {player3.username} & {player4.username}")
         while True:
-            message1 = await read_pickle(player1.reader)
-            message2 = await read_pickle(player2.reader)
-            message3 = await read_pickle(player3.reader)
-            message4 = await read_pickle(player4.reader)
+            start_time = time.monotonic()
+            data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader), receive_ingame(player3.reader), receive_ingame(player4.reader))
 
-            if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
-                print(f"[ERROR] game_session_2v2 is interrupted")
+            message1, message2, message3, message4 = data
 
-            if message1 in end_message or message2 in end_message or message3 in end_message or message4 in end_message:
-                winner = {
-                    'red': 0,
-                    'blue': 0,
-                    'none': 0
-                }
-                decoded1 = pickle.loads(message1) if message1 in end_message else 'none'
-                decoded2 = pickle.loads(message2) if message2 in end_message else 'none'
-                decoded3 = pickle.loads(message3) if message3 in end_message else 'none'
-                decoded4 = pickle.loads(message4) if message4 in end_message else 'none'
+            if not (type(message1) is dict and type(message2) is dict and type(message3) is dict and type(message4) is dict):
+                if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
+                    print(f"[ERROR] game_session_2v2 is interrupted")
+                else:
+                    winner = {
+                        'red': 0,
+                        'blue': 0,
+                    }
+                    if message1 == 'blue' or message1 == 'red':
+                        winner[message1] += 1
+                    if message2 == 'blue' or message2 == 'red':
+                        winner[message2] += 1
+                    if message3 == 'blue' or message3 == 'red':
+                        winner[message3] += 1
+                    if message4 == 'blue' or message4 == 'red':
+                        winner[message4] += 1
 
-                winner[decoded1] += 1
-                winner[decoded2] += 1
-                winner[decoded3] += 1
-                winner[decoded4] += 1
-
-                winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
-                print(f"[GAME END] 2v2 winner: {player1.username if winner == 'blue' else player3.username if winner == 'red' else 'None'} & {player2.username if winner == 'blue' else player4.username if winner == 'red' else 'None'}")
+                    winner = 'red' if winner['red'] > 2 else 'blue' if winner['blue'] > 2 else 'none'
+                    print(f"[GAME END] 2v2 winner: {player1.username if winner == 'blue' else player3.username if winner == 'red' else 'None'} & {player2.username if winner == 'blue' else player4.username if winner == 'red' else 'None'}")
 
                 break
+            else:
+                message = pickle.dumps(message1 | message2 | message3 | message4)
 
-            message = pickle.dumps([pickle.loads(message1), pickle.loads(message2), pickle.loads(message3), pickle.loads(message4)])
+                await send_pickle(player1.writer, message)
+                await send_pickle(player2.writer, message)
+                await send_pickle(player3.writer, message)
+                await send_pickle(player4.writer, message)
 
-            await send_pickle(player1.writer, message)
-            await send_pickle(player2.writer, message)
-            await send_pickle(player3.writer, message)
-            await send_pickle(player4.writer, message)
+            elapsed = time.monotonic() - start_time
+            if elapsed < 1.03:
+                await asyncio.sleep(1.03 - elapsed)
 
     except Exception as e:
         print(f"[ERROR] game_session_2v2: {e}")
