@@ -47,14 +47,10 @@ async def read_pickle(reader):
 
 async def receive_ingame(reader):
     try:
-        async def read_full_message():
-            length_bytes = await reader.readexactly(4)
-            length = struct.unpack('>I', length_bytes)[0]
-            data = await reader.readexactly(length)
-            return pickle.loads(data)
-
-        data = await asyncio.wait_for(read_full_message(), timeout=0.5)
-        return data
+        length_bytes = await reader.readexactly(4, timeout=0.8)
+        length = struct.unpack('>I', length_bytes)[0]
+        data = await reader.readexactly(length, timeout=0.1)
+        return pickle.loads(data)
 
     except asyncio.TimeoutError:
         return {}
@@ -175,7 +171,6 @@ async def game_session_1v1(player1, player2):
 
             else:
                 data = pickle.dumps(message1 | message2)
-                print(data)
                 await send_pickle(player1.writer, data)
                 await send_pickle(player2.writer, data)
 
