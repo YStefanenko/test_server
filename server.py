@@ -175,6 +175,7 @@ async def game_session_1v1(player1, player2):
 
             else:
                 data = pickle.dumps(message1 | message2)
+                print(data)
                 await send_pickle(player1.writer, data)
                 await send_pickle(player2.writer, data)
 
