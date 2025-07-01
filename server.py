@@ -7,10 +7,12 @@ import random
 import time
 
 online_users = set()
+game_rooms = {}
 database_name = 'database.db'
 queue_1v1 = None
 queue_2v2 = None
 online_users_lock = None
+game_room_lock = None
 
 
 class Player:
@@ -18,6 +20,40 @@ class Player:
         self.username = username
         self.reader = reader
         self.writer = writer
+
+
+class GameRoom:
+    def __init__(self, code, mode, host):
+        self.code = code
+        self.mode = mode
+        self.players = [host]
+
+    async def add_player(self, player):
+        self.players.append(player)
+        if (len(self.players) > 1 and self.mode == '1v1') or (len(self.players) > 3 and self.mode == '2v2'):
+            await self.start()
+
+    async def start(self):
+        if self.mode == '1v1':
+            asyncio.create_task(game_session_1v1(self.players[0], self.players[1]))
+        if self.mode == '2v2':
+            asyncio.create_task(game_session_2v2(self.players[0], self.players[1], self.players[2], self.players[3]))
+        await delete_game_room(self.code)
+
+
+async def add_game_room(code, room):
+    async with game_room_lock:
+        game_rooms[code] = room
+
+
+async def delete_game_room(code):
+    async with game_room_lock:
+        del game_rooms[code]
+
+
+async def room_exists(code):
+    async with game_room_lock:
+        return code in game_rooms
 
 
 async def add_online_user(username):
@@ -44,6 +80,7 @@ async def read_pickle(reader):
     except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
         print(f"[ERROR] read_pickle: {e}")
         return 0
+
 
 async def receive_ingame(reader):
     try:
@@ -145,6 +182,7 @@ async def game_session_1v1(player1, player2):
             data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader))
 
             message1, message2 = data
+
             if not (type(message1) is dict and type(message2) is dict):
 
                 if message1 == 0 or message2 == 0:
@@ -290,7 +328,6 @@ async def matchmaking_2v2():
 
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    connection_type = None
     player = None
 
     try:
@@ -303,6 +340,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         connection_type = message['type']
         username = message['username']
         password = message['password']
+        code = message['code']
 
         status = await check_login(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
@@ -323,8 +361,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if status and not await is_user_online(username):
             await add_online_user(username)
             player = Player(username=username, reader=reader, writer=writer)
-
-            if connection_type == '1v1':
+            if code:
+                if await room_exists(code):
+                    await game_rooms[code].add_player(player)
+                else:
+                    room = GameRoom(code, connection_type, player)
+                    await add_game_room(code, room)
+                print(f"[QUEUE] {username} created a game room")
+            elif connection_type == '1v1':
                 await queue_1v1.put(player)
                 print(f"[QUEUE] {username} joined 1v1 queue")
             elif connection_type == '2v2':
@@ -350,11 +394,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def main():
-    global queue_1v1, queue_2v2, online_users_lock
+    global queue_1v1, queue_2v2, online_users_lock, game_room_lock
 
     queue_1v1 = asyncio.Queue()
     queue_2v2 = asyncio.Queue()
     online_users_lock = asyncio.Lock()
+    game_room_lock = asyncio.Lock()
 
     server_ip = "0.0.0.0"
     server_port = 9056
