@@ -358,7 +358,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         connection_type = message['type']
         username = message['username']
         password = message['password']
-        code = message['code']
 
         status = await check_login(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
@@ -379,13 +378,15 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if status and not await is_user_online(username):
             await add_online_user(username)
             player = Player(username=username, reader=reader, writer=writer)
+            code = message['code']
             if code:
                 if await room_exists(code):
                     await rooms[code].add_player(player)
+                    print(f"[QUEUE] {username} joined a game room")
                 else:
                     room = GameRoom(code, connection_type, player)
                     await add_game_room(code, room)
-                print(f"[QUEUE] {username} created a game room")
+                    print(f"[QUEUE] {username} created a game room")
             elif connection_type == '1v1':
                 await queue_1v1.put(player)
                 print(f"[QUEUE] {username} joined 1v1 queue")
