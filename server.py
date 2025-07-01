@@ -303,7 +303,7 @@ async def is_connected(player):
 
 
 async def matchmaking_rooms():
-    print(f"Matchmaking in rooms")
+    print(f"Matchmaking in rooms running")
     while True:
         async with room_lock:
             for code in rooms:
@@ -424,6 +424,7 @@ async def main():
 
     asyncio.create_task(matchmaking_1v1())
     asyncio.create_task(matchmaking_2v2())
+    asyncio.create_task(matchmaking_rooms())
     server = await asyncio.start_server(handle_client, server_ip, server_port)
     print(f"Server started at {server_ip}:{server_port}")
     async with server:
