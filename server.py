@@ -7,12 +7,12 @@ import random
 import time
 
 online_users = set()
-game_rooms = {}
+rooms = {}
 database_name = 'database.db'
 queue_1v1 = None
 queue_2v2 = None
 online_users_lock = None
-game_room_lock = None
+room_lock = None
 
 
 class Player:
@@ -40,20 +40,29 @@ class GameRoom:
             asyncio.create_task(game_session_2v2(self.players[0], self.players[1], self.players[2], self.players[3]))
         await delete_game_room(self.code)
 
+    async def check_room(self):
+        for player in self.players:
+            if not await is_connected(player):
+                await disconnect(player)
+                self.players.remove(player)
+
+        if not self.players:
+            await delete_game_room(self.code)
+
 
 async def add_game_room(code, room):
-    async with game_room_lock:
-        game_rooms[code] = room
+    async with room_lock:
+        rooms[code] = room
 
 
 async def delete_game_room(code):
-    async with game_room_lock:
-        del game_rooms[code]
+    async with room_lock:
+        del rooms[code]
 
 
 async def room_exists(code):
-    async with game_room_lock:
-        return code in game_rooms
+    async with room_lock:
+        return code in rooms
 
 
 async def add_online_user(username):
@@ -293,6 +302,15 @@ async def is_connected(player):
         return False
 
 
+async def matchmaking_rooms():
+    print(f"Matchmaking in rooms")
+    while True:
+        async with room_lock:
+            for code in rooms:
+                asyncio.create_task(rooms[code].check_room())
+        await asyncio.sleep(10)
+
+
 async def matchmaking_1v1():
     print(f"Matchmaking 1v1 running")
     while True:
@@ -363,7 +381,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             player = Player(username=username, reader=reader, writer=writer)
             if code:
                 if await room_exists(code):
-                    await game_rooms[code].add_player(player)
+                    await rooms[code].add_player(player)
                 else:
                     room = GameRoom(code, connection_type, player)
                     await add_game_room(code, room)
@@ -394,12 +412,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def main():
-    global queue_1v1, queue_2v2, online_users_lock, game_room_lock
+    global queue_1v1, queue_2v2, online_users_lock, room_lock
 
     queue_1v1 = asyncio.Queue()
     queue_2v2 = asyncio.Queue()
     online_users_lock = asyncio.Lock()
-    game_room_lock = asyncio.Lock()
+    room_lock = asyncio.Lock()
 
     server_ip = "0.0.0.0"
     server_port = 9056
