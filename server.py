@@ -5,6 +5,7 @@ import sqlite3
 import bcrypt
 import random
 import time
+import socket
 
 online_users = set()
 rooms = {}
@@ -376,6 +377,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             return score
 
         if status and not await is_user_online(username):
+
+            # No Delay Set Up
+            sock = writer.get_extra_info('socket')
+            if sock:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
             await add_online_user(username)
             player = Player(username=username, reader=reader, writer=writer)
             code = message['code']
