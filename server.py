@@ -24,13 +24,17 @@ class Player:
 
 
 class GameRoom:
-    def __init__(self, code, mode, host):
+    def __init__(self, code, mode, custom_map=None):
         self.code = code
         self.mode = mode
-        self.players = [host]
+        self.players = []
+
+        self.custom_map = custom_map
 
     async def add_player(self, player):
         self.players.append(player)
+        if not len(self.players) == 1:
+            await send_pickle(player.writer, self.custom_map)
         if (len(self.players) > 1 and self.mode == '1v1') or (len(self.players) > 3 and self.mode == '2v2'):
             await self.start()
 
@@ -51,7 +55,7 @@ class GameRoom:
             await delete_game_room(self.code)
 
 
-async def add_game_room(code, room):
+async def create_game_room(code, room):
     async with room_lock:
         rooms[code] = room
 
@@ -186,7 +190,7 @@ async def game_session_1v1(player1, player2):
         await send_pickle(player1.writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
         await send_pickle(player2.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username], 'red': [player2.username]}}))
         print(f"[GAME] 1v1 started: {player1.username} vs {player2.username}")
-
+        await asyncio.sleep(1)
         while True:
             start_time = time.monotonic()
             data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader))
@@ -240,6 +244,7 @@ async def game_session_2v2(player1, player2, player3, player4):
         await send_pickle(player3.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
         await send_pickle(player4.writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [player1.username, player2.username], 'red': [player3.username, player4.username]}}))
         print(f"[GAME] 2v2 started: {player1.username} & {player2.username} vs {player3.username} & {player4.username}")
+        await asyncio.sleep(1)
         while True:
             start_time = time.monotonic()
             data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader), receive_ingame(player3.reader), receive_ingame(player4.reader))
@@ -309,7 +314,7 @@ async def matchmaking_rooms():
         async with room_lock:
             for code in rooms:
                 asyncio.create_task(rooms[code].check_room())
-        await asyncio.sleep(10)
+        await asyncio.sleep(8)
 
 
 async def matchmaking_1v1():
@@ -325,7 +330,7 @@ async def matchmaking_1v1():
                     if not await is_connected(players[i]):
                         await disconnect(players[i])
                         players.pop(i)
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
         asyncio.create_task(game_session_1v1(players[0], players[1]))
 
 
@@ -342,7 +347,7 @@ async def matchmaking_2v2():
                     if not await is_connected(players[i]):
                         await disconnect(players[i])
                         players.pop(i)
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
         asyncio.create_task(game_session_2v2(players[0], players[1], players[2], players[3]))
 
 
@@ -391,8 +396,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     await rooms[code].add_player(player)
                     print(f"[QUEUE] {username} joined a game room")
                 else:
-                    room = GameRoom(code, connection_type, player)
-                    await add_game_room(code, room)
+                    custom_map = message['custom_map']
+                    if custom_map:
+                        await send_pickle(player.writer, pickle.dumps('send_map'))
+                        custom_map = await read_pickle(reader)
+                    room = GameRoom(code, connection_type, custom_map)
+                    await create_game_room(code, room)
+                    await rooms[code].add_player(player)
                     print(f"[QUEUE] {username} created a game room")
             elif connection_type == '1v1':
                 await queue_1v1.put(player)
