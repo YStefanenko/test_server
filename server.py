@@ -196,6 +196,7 @@ async def game_session_1v1(player1, player2):
             data = await asyncio.gather(receive_ingame(player1.reader), receive_ingame(player2.reader))
 
             message1, message2 = data
+            print(data)
 
             if not (type(message1) is dict and type(message2) is dict):
 
