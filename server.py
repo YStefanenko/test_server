@@ -400,8 +400,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             if sock:
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-            await add_online_user(username)
             player = Player(username=username, reader=reader, writer=writer)
+            await add_online_user(username)
             code = message['code']
             if code:
                 if await room_exists(code):
@@ -431,6 +431,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
     except Exception as e:
         print(f"[ERROR] handle_client: {e}")
+        if player:
+            await disconnect(player)
 
     finally:
         if player is None:
