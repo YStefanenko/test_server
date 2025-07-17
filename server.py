@@ -20,6 +20,9 @@ room_lock = None
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+print(EMAIL_USER)
+print(EMAIL_PASS)
+
 
 
 class Player:
@@ -96,39 +99,38 @@ async def add_user(username, password):
 
 
 async def send_email(text, email):
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("Environment variables EMAIL_USER or EMAIL_PASS are not set.")
+        return 0
+
     message = EmailMessage()
-    message["From"] = "teaandpython@gmail.com"
+    message["From"] = EMAIL_USER
     message["To"] = email
     message["Subject"] = "War of Dots"
     message.set_content(text)
 
     try:
-        await aiosmtplib.send(
+        response = await aiosmtplib.send(
             message,
             hostname="smtp.gmail.com",
             port=587,
             start_tls=True,
             username=EMAIL_USER,
             password=EMAIL_PASS,
-        )
-        status = 1
-        print(f"Confirmation email sent to {email}")
-
+            timeout=10)
+        print(f"Email sent: {response}")
+        return 1
     except aiosmtplib.SMTPException as e:
-        status = 0
         print(f"SMTP error occurred: {e}")
     except asyncio.TimeoutError:
-        status = 0
         print("Email send timed out.")
     except Exception as e:
-        status = 0
         print(f"Unexpected error: {e}")
-
-    return status
+    return 0
 
 
 async def register_user(username, email):
-    status = await user_exists(username)
+    status = 1 - await user_exists(username)
     if not status:
         return 0
     generated_password = await generate_password(username)
