@@ -6,6 +6,9 @@ import bcrypt
 import random
 import time
 import socket
+from email.message import EmailMessage
+import aiosmtplib
+import os
 
 online_users = set()
 rooms = {}
@@ -14,6 +17,9 @@ queue_1v1 = None
 queue_2v2 = None
 online_users_lock = None
 room_lock = None
+
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 class Player:
@@ -55,8 +61,98 @@ class GameRoom:
             await delete_game_room(self.code)
 
 
-async def send_email(username, addess):
-    t = 'IfYouAreReadingThisRememberThatTheGameIsFreeAndIWorkedHardToMakeItPossiblePleaseRespectMyWork'
+async def generate_password(username):
+    characters = 'acdefghjkmnpqrtuvwxyzACDEFGHJKMNPQRTUVWXYZ234679'
+    password = ''.join(random.choice(characters) for _ in range(12))
+    return password
+
+
+async def user_exists(username):
+    conn = sqlite3.connect(database_name)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+    result = cursor.fetchone()
+
+    conn.close()
+    return result is not None
+
+
+async def add_user(username, password):
+    conn = sqlite3.connect(database_name)
+    c = conn.cursor()
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    try:
+        c.execute('INSERT INTO users (username, password_hash, score) VALUES (?, ?, ?)',
+                  (username, password_hash, 0))
+        conn.commit()
+        status = 1
+    except sqlite3.IntegrityError:
+        status = 0
+    finally:
+        conn.close()
+
+    return status
+
+
+async def send_email(text, email):
+    message = EmailMessage()
+    message["From"] = "teaandpython@gmail.com"
+    message["To"] = email
+    message["Subject"] = "War of Dots"
+    message.set_content(text)
+
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname="smtp.gmail.com",
+            port=587,
+            start_tls=True,
+            username=EMAIL_USER,
+            password=EMAIL_PASS,
+        )
+        status = 1
+        print(f"Confirmation email sent to {email}")
+
+    except aiosmtplib.SMTPException as e:
+        status = 0
+        print(f"SMTP error occurred: {e}")
+    except asyncio.TimeoutError:
+        status = 0
+        print("Email send timed out.")
+    except Exception as e:
+        status = 0
+        print(f"Unexpected error: {e}")
+
+    return status
+
+
+async def register_user(username, email):
+    status = await user_exists(username)
+    if not status:
+        return 0
+    generated_password = await generate_password(username)
+    status = await add_user(username, generated_password)
+    if not status:
+        return 0
+    status = await send_email(f"""
+        Hi {username},
+        
+        Thank you for registering an account in War of Dots!
+        
+        Here are your login details. Once you sign in, you’ll stay logged in — no need to enter them again.
+        
+        Nickname: {username}
+        Password: {generated_password}
+        
+        I am excited to have you in the battle. Thanks again, and enjoy the game!
+        
+        – TeaAndPython
+    """, email)
+    if not status:
+        return 0
+
+    return 1
 
 
 async def create_game_room(code, room):
@@ -381,7 +477,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if connection_type == 'register':
             username = message['username']
             email = message['email']
-            status = await send_email(username, email)
+            status = await register_user(username, email)
             reply = 'register-success' if status else 'register-fail'
             await send_pickle(writer, pickle.dumps(reply))
             return
