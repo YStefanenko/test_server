@@ -40,9 +40,9 @@ class GameRoom:
 
     async def start(self):
         if self.mode == '1v1':
-            asyncio.create_task(game_session_1v1(self.players[0], self.players[1], score=False))
+            asyncio.create_task(game_session_1v1(self.players, score=False))
         if self.mode == '2v2':
-            asyncio.create_task(game_session_2v2(self.players[0], self.players[1], self.players[2], self.players[3], score=False))
+            asyncio.create_task(game_session_2v2(self.players, score=False))
         await delete_game_room(self.code)
 
     async def check_room(self):
@@ -53,6 +53,10 @@ class GameRoom:
 
         if not self.players:
             await delete_game_room(self.code)
+
+
+async def send_email(username, addess):
+    t = 'IfYouAreReadingThisRememberThatTheGameIsFreeAndIWorkedHardToMakeItPossiblePleaseRespectMyWork'
 
 
 async def create_game_room(code, room):
@@ -231,8 +235,7 @@ async def game_session_1v1(players, score=True):
 
             else:
                 data = pickle.dumps(message1 | message2)
-                await send_pickle(players[0].writer, data)
-                await send_pickle(players[1].writer, data)
+                await asyncio.gather(send_pickle(players[0].writer, data), send_pickle(players[1].writer, data))
 
             elapsed = time.monotonic() - start_time
             if elapsed < 1.03:
@@ -374,6 +377,15 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         message = pickle.loads(message)
 
         connection_type = message['type']
+
+        if connection_type == 'register':
+            username = message['username']
+            email = message['email']
+            status = await send_email(username, email)
+            reply = 'register-success' if status else 'register-fail'
+            await send_pickle(writer, pickle.dumps(reply))
+            return
+
         username = message['username']
         password = message['password']
 
