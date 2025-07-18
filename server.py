@@ -20,6 +20,7 @@ room_lock = None
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+print(EMAIL_USER)
 
 
 class Player:
