@@ -43,8 +43,9 @@ class GameRoom:
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
-            await send_pickle(player.writer, self.custom_map)
+            await send_pickle(player.writer, pickle.dumps(self.custom_map))
         if (len(self.players) > 1 and self.mode == '1v1') or (len(self.players) > 3 and self.mode == '2v2'):
+            await asyncio.sleep(5)
             await self.start()
 
     async def start(self):
