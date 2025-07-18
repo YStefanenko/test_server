@@ -577,6 +577,9 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             status, error = await register_user(username, email)
             reply = 'register-success' if status else 'register-fail-' + error
             await send_pickle(writer, pickle.dumps(reply))
+            
+            if not error:
+                print(f'Successfully registered {username} at {email}')
 
             await asyncio.sleep(1800)  # 30 minutes
 
