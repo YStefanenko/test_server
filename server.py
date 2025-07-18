@@ -20,9 +20,6 @@ room_lock = None
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
-print(EMAIL_USER)
-print(EMAIL_PASS)
-
 
 
 class Player:
@@ -32,13 +29,18 @@ class Player:
         self.writer = writer
 
 
+# Everything needed to create a game room
+
 class GameRoom:
     def __init__(self, code, mode, custom_map=None):
         self.code = code
         self.mode = mode
         self.players = []
 
-        self.custom_map = pickle.dumps(custom_map)
+        self.custom_map = custom_map
+
+        if self.custom_map is None:
+            self.custom_map = pickle.dumps(None)
 
     async def add_player(self, player):
         self.players.append(player)
@@ -65,6 +67,23 @@ class GameRoom:
             await delete_game_room(self.code)
 
 
+async def create_game_room(code, room):
+    async with room_lock:
+        rooms[code] = room
+
+
+async def delete_game_room(code):
+    async with room_lock:
+        del rooms[code]
+
+
+async def room_exists(code):
+    async with room_lock:
+        return code in rooms
+
+
+# Everything needed to create a new account
+
 async def generate_password(username):
     characters = 'acdefghjkmnpqrtuvwxyzACDEFGHJKMNPQRTUVWXYZ234679'
     password = ''.join(random.choice(characters) for _ in range(12))
@@ -72,31 +91,79 @@ async def generate_password(username):
 
 
 async def user_exists(username):
-    conn = sqlite3.connect(database_name)
-    cursor = conn.cursor()
+    def blocking_check():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
 
-    cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-    result = cursor.fetchone()
-
-    conn.close()
-    return result is not None
+    return await asyncio.to_thread(blocking_check)
 
 
-async def add_user(username, password):
-    conn = sqlite3.connect(database_name)
-    c = conn.cursor()
-    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-    try:
-        c.execute('INSERT INTO users (username, password_hash, score) VALUES (?, ?, ?)',
-                  (username, password_hash, 0))
-        conn.commit()
-        status = 1
-    except sqlite3.IntegrityError:
-        status = 0
-    finally:
+async def email_exists(email):
+    def blocking_check():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM users WHERE email = ?', (email,))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
+
+    return await asyncio.to_thread(blocking_check)
+
+
+async def check_if_active(username):
+    def blocking_check():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT last_active FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
         conn.close()
 
-    return status
+        if result and result[0] is not None:
+            last_active = float(result[0])
+            return (time.time() - last_active) < 1795  # 30 minutes in seconds
+        return False
+
+    return await asyncio.to_thread(blocking_check)
+
+
+
+async def add_user(username, password, email):
+    def blocking_add():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        last_active = time.time()  # Seconds since epoch
+
+        try:
+            c.execute('''
+                INSERT INTO users (
+                    username, password_hash, score, number_of_wins,
+                    number_of_games, last_active, email
+                ) VALUES (?, ?, 1000, 0, 0, ?, ?)
+            ''', (username, password_hash, last_active, email))
+            conn.commit()
+            return 1
+        except sqlite3.IntegrityError:
+            return 0
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(blocking_add)
+
+
+async def delete_user(username):
+    def blocking_delete():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('DELETE FROM users WHERE username = ?', (username,))
+        conn.commit()
+        conn.close()
+
+    await asyncio.to_thread(blocking_delete)
 
 
 async def send_email(text, email):
@@ -133,11 +200,14 @@ async def send_email(text, email):
 async def register_user(username, email):
     status = 1 - await user_exists(username)
     if not status:
-        return 0
+        return 0, 'username-taken'
+    status = 1 - await email_exists(email)
+    if not status:
+        return 0, 'email-taken'
     generated_password = await generate_password(username)
     status = await add_user(username, generated_password)
     if not status:
-        return 0
+        return 0, 'username-taken'
     status = await send_email(f"""
         Hi {username},
         
@@ -147,31 +217,20 @@ async def register_user(username, email):
         
         Nickname: {username}
         Password: {generated_password}
+        You have 30 minutes to log in, otherwise the account will be deactivated.
         
         I am excited to have you in the battle. Thanks again, and enjoy the game!
         
         – TeaAndPython
     """, email)
     if not status:
-        return 0
+        await delete_user(username)
+        return 0, 'wrong-email'
 
-    return 1
-
-
-async def create_game_room(code, room):
-    async with room_lock:
-        rooms[code] = room
+    return 1, None
 
 
-async def delete_game_room(code):
-    async with room_lock:
-        del rooms[code]
-
-
-async def room_exists(code):
-    async with room_lock:
-        return code in rooms
-
+# Everything needed for online user management
 
 async def add_online_user(username):
     async with online_users_lock:
@@ -225,9 +284,19 @@ async def send_pickle(writer, message):
         return 0
 
 
-async def check_login(username, password):
-    loop = asyncio.get_running_loop()
+async def update_last_active(username: str):
+    def blocking_update():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        last_active = time.time()
+        c.execute('UPDATE users SET last_active = ? WHERE username = ?', (last_active, username))
+        conn.commit()
+        conn.close()
 
+    await asyncio.to_thread(blocking_update)
+
+
+async def check_login(username, password):
     def blocking_login():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
@@ -240,30 +309,59 @@ async def check_login(username, password):
             return bcrypt.checkpw(password.encode(), stored_hash)
         return False
 
-    result = await loop.run_in_executor(None, blocking_login)
+    result = await asyncio.to_thread(blocking_login)
+
+    if result:
+        await update_last_active(username)
+
     return 1 if result else 0
 
 
-async def score_game(winner, loser):
-    loop = asyncio.get_running_loop()
+async def update_elo(score_a, score_b, result, k=50):
+    async def expected_score(r1, r2):
+        return 1 / (1 + 10 ** ((r2 - r1) / 400))
 
+    expected_a = await expected_score(score_a, score_b)
+    expected_b = await expected_score(score_b, score_a)
+
+    new_rating_a = score_a + k * (result - expected_a)
+    new_rating_b = score_b + k * ((1 - result) - expected_b)
+
+    return round(new_rating_a), round(new_rating_b)
+
+
+async def score_game(winner: str, loser: str):
+    # Get current scores
+    score_winner = await get_score(winner)
+    score_loser = await get_score(loser)
+
+    # Update ELO scores
+    score_winner, score_loser = await update_elo(score_winner, score_loser, 1)
+
+    # Write updates to DB in a thread
     def blocking_score():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
-        for w in winner:
-            c.execute('UPDATE users SET score = score + 1 WHERE username = ?', (w,))
-        for l in loser:
-            c.execute('UPDATE users SET score = score - 1 WHERE username = ?', (l,))
+
+        # Update number of games for both players
+        c.execute('UPDATE users SET number_of_games = number_of_games + 1 WHERE username = ?', (winner,))
+        c.execute('UPDATE users SET number_of_games = number_of_games + 1 WHERE username = ?', (loser,))
+
+        # Update number of wins for winner
+        c.execute('UPDATE users SET number_of_wins = number_of_wins + 1 WHERE username = ?', (winner,))
+
+        # Update the scores
+        c.execute('UPDATE users SET score = ? WHERE username = ?', (score_winner, winner))
+        c.execute('UPDATE users SET score = ? WHERE username = ?', (score_loser, loser))
+
         conn.commit()
         conn.close()
 
-    await loop.run_in_executor(None, blocking_score)
+    await asyncio.to_thread(blocking_score)
 
 
 async def get_score(username):
-    loop = asyncio.get_running_loop()
-
-    def blocking_score():
+    def blocking_get():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
         c.execute('SELECT score FROM users WHERE username = ?', (username,))
@@ -271,12 +369,8 @@ async def get_score(username):
         conn.close()
         return result
 
-    score = await loop.run_in_executor(None, blocking_score)
-
-    if score is None:
-        return 0
-    else:
-        return str(score[0])
+    score = await asyncio.to_thread(blocking_get)
+    return str(score[0]) if score else 0
 
 
 async def disconnect(player):
@@ -313,21 +407,21 @@ async def game_session_1v1(players, score=True):
                 if message2 == 0 or message2 == 'surrender':
                     await send_pickle(players[0].writer, pickle.dumps('win'))
                     if score:
-                        await score_game(teams['blue'], teams['red'])
-                    print(f"[GAME END] 1v1 winner: {players[0].username}")
+                        await score_game(teams['blue'][0], teams['red'][0])
+                    print(f"[GAME END] 1v1 winner: {teams['blue'][0]}")
                 elif message1 == 0 or message1 == 'surrender':
                     await send_pickle(players[1].writer, pickle.dumps('win'))
                     if score:
-                        await score_game(teams['red'], teams['blue'])
-                    print(f"[GAME END] 1v1 winner: {players[1].username}")
+                        await score_game(teams['red'][0], teams['blue'][0])
+                    print(f"[GAME END] 1v1 winner: {teams['red'][0]}")
                 elif message1 == 'blue' and message2 == 'blue':
                     if score:
-                        await score_game(teams['blue'], teams['red'])
-                    print(f"[GAME END] 1v1 winner: {players[0].username}")
+                        await score_game(teams['blue'][0], teams['red'][0])
+                    print(f"[GAME END] 1v1 winner: {teams['blue'][0]}")
                 elif message1 == 'red' and message2 == 'red':
                     if score:
-                        await score_game(teams['red'], teams['blue'])
-                    print(f"[GAME END] 1v1 winner: {players[1].username}")
+                        await score_game(teams['red'][0], teams['blue'][0])
+                    print(f"[GAME END] 1v1 winner: {teams['red'][0]}")
                 else:
                     print("[GAME END] 1v1 winner: No winner")
                 break
@@ -480,9 +574,17 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if connection_type == 'register':
             username = message['username']
             email = message['email']
-            status = await register_user(username, email)
-            reply = 'register-success' if status else 'register-fail'
+            status, error = await register_user(username, email)
+            reply = 'register-success' if status else 'register-fail-' + error
             await send_pickle(writer, pickle.dumps(reply))
+
+            await asyncio.sleep(1800)  # 30 minutes
+
+            status = await check_if_active(username)
+
+            if not status:
+                await delete_user(username)
+
             return
 
         username = message['username']
