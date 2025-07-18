@@ -20,7 +20,6 @@ room_lock = None
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
-print(EMAIL_USER)
 
 
 class Player:
@@ -131,7 +130,6 @@ async def check_if_active(username):
     return await asyncio.to_thread(blocking_check)
 
 
-
 async def add_user(username, password, email):
     def blocking_add():
         conn = sqlite3.connect(database_name)
@@ -206,7 +204,7 @@ async def register_user(username, email):
     if not status:
         return 0, 'email-taken'
     generated_password = await generate_password(username)
-    status = await add_user(username, generated_password)
+    status = await add_user(username, generated_password, email)
     if not status:
         return 0, 'username-taken'
     status = await send_email(f"""
@@ -578,7 +576,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             status, error = await register_user(username, email)
             reply = 'register-success' if status else 'register-fail-' + error
             await send_pickle(writer, pickle.dumps(reply))
-            
+
             if not error:
                 print(f'Successfully registered {username} at {email}')
 
