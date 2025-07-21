@@ -369,7 +369,7 @@ async def get_score(username):
         return result
 
     score = await asyncio.to_thread(blocking_get)
-    return str(score[0]) if score else 0
+    return score[0] if score else 0
 
 
 async def disconnect(player):
