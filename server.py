@@ -358,17 +358,17 @@ async def score_game(winner: str, loser: str, additional_info=None):
         if additional_info:
             try:
                 if additional_info[0]:
-                    pickle.loads(additional_info[0])
-                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (additional_info[0]['destroyed'], winner))
+                    data = pickle.loads(additional_info[0])
+                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (data['destroyed'], winner))
                     c.execute('SELECT shortest_game FROM users WHERE username = ?', (winner,))
                     result = c.fetchone()
                     if result:
                         if additional_info['time'] < result:
-                            c.execute('UPDATE users SET shortest_game = ? WHERE username = ?', (additional_info[0]['time'], winner))
+                            c.execute('UPDATE users SET shortest_game = ? WHERE username = ?', (data['time'], winner))
 
                 if additional_info[1]:
-                    pickle.loads(additional_info[1])
-                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (additional_info[1]['destroyed'], loser))
+                    data = pickle.loads(additional_info[1])
+                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (data['destroyed'], loser))
 
             except Exception:
                 print('Error when recording stats')
