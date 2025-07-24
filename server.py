@@ -27,6 +27,7 @@ class Player:
         self.username = username
         self.reader = reader
         self.writer = writer
+        self.score = await get_score(username)
 
 
 # Everything needed to create a game room
@@ -262,7 +263,7 @@ async def receive_ingame(reader):
         length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=0.8)
         length = struct.unpack('>I', length_bytes)[0]
 
-        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.1)
+        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.5)
         return pickle.loads(data)
 
     except asyncio.TimeoutError:
@@ -271,6 +272,7 @@ async def receive_ingame(reader):
     except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
         print(f"[ERROR] read_pickle: {e}")
         return 0
+
 
 async def send_pickle(writer, message):
     try:
@@ -329,7 +331,7 @@ async def update_elo(score_a, score_b, result, k=50):
     return round(new_rating_a), round(new_rating_b)
 
 
-async def score_game(winner: str, loser: str):
+async def score_game(winner: str, loser: str, additional_info=None):
     # Get current scores
     score_winner = await get_score(winner)
     score_loser = await get_score(loser)
@@ -353,6 +355,24 @@ async def score_game(winner: str, loser: str):
         c.execute('UPDATE users SET score = ? WHERE username = ?', (score_winner, winner))
         c.execute('UPDATE users SET score = ? WHERE username = ?', (score_loser, loser))
 
+        if additional_info:
+            try:
+                if additional_info[0]:
+                    pickle.loads(additional_info[0])
+                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (additional_info[0]['destroyed'], winner))
+                    c.execute('SELECT shortest_game FROM users WHERE username = ?', (winner,))
+                    result = c.fetchone()
+                    if result:
+                        if additional_info['time'] < result:
+                            c.execute('UPDATE users SET shortest_game = ? WHERE username = ?', (additional_info[0]['time'], winner))
+
+                if additional_info[1]:
+                    pickle.loads(additional_info[1])
+                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (additional_info[1]['destroyed'], loser))
+
+            except Exception:
+                print('Error when recording stats')
+
         conn.commit()
         conn.close()
 
@@ -372,6 +392,33 @@ async def get_score(username):
     return score[0] if score else 0
 
 
+async def get_stats(username):
+    def blocking_get():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+
+        # Get the user's score
+        c.execute("SELECT score, number_of_games, number_of_wins, units_destroyed, shortest_game FROM users WHERE username = ?", (username,))
+        result = c.fetchone()
+        if not result:
+            conn.close()
+            return {"username": username, "score": 0, "rank": 1000, "number_of_games": 0, "number_of_wins": 0, "units_destroyed": 0, "shortest_game": 3600}
+
+        score = result[0]
+        number_of_games = result[1]
+        number_of_wins = result[2]
+        units_destroyed = result[3]
+        shortest_game = result[4]
+
+        # Count users with a higher score (rank = count + 1)
+        c.execute("SELECT COUNT(*) FROM users WHERE score > ?", (score,))
+        higher_count = c.fetchone()[0]
+        conn.close()
+        return {"username": username, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": units_destroyed, "shortest_game": shortest_game}
+
+    return await asyncio.to_thread(blocking_get)
+
+
 async def disconnect(player):
     print(f"[DISCONNECT] {player.username} disconnected")
     await remove_online_user(player.username)
@@ -385,11 +432,9 @@ async def disconnect(player):
 async def game_session_1v1(players, score=True):
     try:
         map_final = random.randint(1, 30)
-        colors = ['blue', 'red']
-        random.shuffle(colors)
-        teams = {'blue': [players[i].username for i in range(len(players)) if colors[i] == 'blue'], 'red': [players[i].username for i in range(len(players)) if colors[i] == 'red']}
-        await send_pickle(players[0].writer, pickle.dumps({'color': colors[0], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': colors[1], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
+        random.shuffle(players)
+        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': players[0].username, 'red': players[1].username}}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': players[0].username, 'red': players[1].username}}))
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
@@ -405,22 +450,26 @@ async def game_session_1v1(players, score=True):
 
                 if message2 == 0 or message2 == 'surrender':
                     await send_pickle(players[0].writer, pickle.dumps('win'))
+                    stats = await asyncio.gather(read_pickle(players[0].reader), read_pickle(players[1].reader))
                     if score:
-                        await score_game(teams['blue'][0], teams['red'][0])
-                    print(f"[GAME END] 1v1 winner: {teams['blue'][0]}")
+                        await score_game(players[0].username, players[1].username)
+                    print(f"[GAME END] 1v1 winner: {players[0].username}")
                 elif message1 == 0 or message1 == 'surrender':
                     await send_pickle(players[1].writer, pickle.dumps('win'))
+                    stats = await asyncio.gather(read_pickle(players[1].reader), read_pickle(players[0].reader))
                     if score:
-                        await score_game(teams['red'][0], teams['blue'][0])
-                    print(f"[GAME END] 1v1 winner: {teams['red'][0]}")
+                        await score_game(players[1].username, players[0].username)
+                    print(f"[GAME END] 1v1 winner: {players[1].username}")
                 elif message1 == 'blue' and message2 == 'blue':
+                    stats = await asyncio.gather(read_pickle(players[0].reader), read_pickle(players[1].reader))
                     if score:
-                        await score_game(teams['blue'][0], teams['red'][0])
-                    print(f"[GAME END] 1v1 winner: {teams['blue'][0]}")
+                        await score_game(players[0].username, players[1].username)
+                    print(f"[GAME END] 1v1 winner: {players[0].username}")
                 elif message1 == 'red' and message2 == 'red':
+                    stats = await asyncio.gather(read_pickle(players[1].reader), read_pickle(players[0].reader))
                     if score:
-                        await score_game(teams['red'][0], teams['blue'][0])
-                    print(f"[GAME END] 1v1 winner: {teams['red'][0]}")
+                        await score_game(players[1].username, players[0].username, additional_info=stats)
+                    print(f"[GAME END] 1v1 winner: {players[1].username}")
                 else:
                     print("[GAME END] 1v1 winner: No winner")
                 break
@@ -443,13 +492,11 @@ async def game_session_1v1(players, score=True):
 async def game_session_2v2(players, score=True):
     try:
         map_final = random.randint(1, 30)
-        colors = ['blue', 'blue', 'red', 'red']
-        random.shuffle(colors)
-        teams = {'blue': [players[i].username for i in range(len(players)) if colors[i] == 'blue'], 'red': [players[i].username for i in range(len(players)) if colors[i] == 'red']}
-        await send_pickle(players[0].writer, pickle.dumps({'color': colors[0], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': colors[1], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
-        await send_pickle(players[2].writer, pickle.dumps({'color': colors[2], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
-        await send_pickle(players[3].writer, pickle.dumps({'color': colors[3], 'map': str(map_final), 'players': {'blue': teams['blue'], 'red': teams['red']}}))
+        random.shuffle(players)
+        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
+        await send_pickle(players[2].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
+        await send_pickle(players[3].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
         print(f"[GAME] 2v2 started: {players[0].username} & {players[1].username} vs {players[2].username} & {players[3].username}")
         await asyncio.sleep(1)
         while True:
@@ -462,6 +509,8 @@ async def game_session_2v2(players, score=True):
                 if message1 == 0 or message2 == 0 or message3 == 0 or message4 == 0:
                     print(f"[ERROR] game_session_2v2 is interrupted")
                 else:
+                    stats = await asyncio.gather(read_pickle(players[0].reader), read_pickle(players[1].reader), read_pickle(players[2].reader), read_pickle(players[3].reader))
+
                     winner = {
                         'red': 0,
                         'blue': 0,
@@ -600,13 +649,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await send_pickle(writer, pickle.dumps(reply))
             return
 
-        elif connection_type == 'get-score':
-            score = await get_score(username)
-            if score:
-                await send_pickle(writer, pickle.dumps({'username': username, 'score': score}))
+        elif connection_type == 'get-stats':
+            if status:
+                message = await get_stats(username)
+                await send_pickle(writer, pickle.dumps(message))
             else:
-                await send_pickle(writer, pickle.dumps('get-score-fail'))
-            return score
+                await send_pickle(writer, pickle.dumps('get-stats-fail'))
+            return
 
         if status and not await is_user_online(username):
 
