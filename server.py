@@ -23,11 +23,11 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 class Player:
-    def __init__(self, username, reader, writer):
+    def __init__(self, username, reader, writer, score):
         self.username = username
         self.reader = reader
         self.writer = writer
-        self.score = await get_score(username)
+        self.score = score
 
 
 # Everything needed to create a game room
@@ -664,7 +664,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             if sock:
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-            player = Player(username=username, reader=reader, writer=writer)
+            player = Player(username=username, reader=reader, writer=writer, score=await get_score(username))
             await add_online_user(username)
             code = message['code']
             if code:
