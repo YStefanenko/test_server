@@ -433,8 +433,8 @@ async def game_session_1v1(players, score=True):
     try:
         map_final = random.randint(1, 30)
         random.shuffle(players)
-        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': players[0].username, 'red': players[1].username}}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': players[0].username, 'red': players[1].username}}))
+        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username], 'red': [players[1].username]}}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [players[0].username], 'red': [players[1].username]}}))
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
