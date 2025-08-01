@@ -263,7 +263,7 @@ async def receive_ingame(reader):
         length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=0.8)
         length = struct.unpack('>I', length_bytes)[0]
 
-        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.5)
+        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.1)
         return pickle.loads(data)
 
     except asyncio.TimeoutError:
