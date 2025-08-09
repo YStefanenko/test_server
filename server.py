@@ -263,7 +263,7 @@ async def receive_ingame(reader):
         length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=0.8)
         length = struct.unpack('>I', length_bytes)[0]
 
-        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.1)
+        data = await asyncio.wait_for(reader.readexactly(length), timeout=0.5)
         return pickle.loads(data)
 
     except asyncio.TimeoutError:
@@ -431,7 +431,7 @@ async def disconnect(player):
 
 async def game_session_1v1(players, score=True):
     try:
-        map_final = random.randint(1, 30)
+        map_final = random.randint(1, 36)
         random.shuffle(players)
         await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username], 'red': [players[1].username]}}))
         await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [players[0].username], 'red': [players[1].username]}}))
@@ -491,7 +491,7 @@ async def game_session_1v1(players, score=True):
 
 async def game_session_2v2(players, score=True):
     try:
-        map_final = random.randint(1, 30)
+        map_final = random.randint(1, 36)
         random.shuffle(players)
         await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
         await send_pickle(players[1].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [players[0].username, players[1].username], 'red': [players[2].username, players[3].username]}}))
