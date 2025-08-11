@@ -271,7 +271,7 @@ async def login1(username, email):
     if not status:
         return 0, 'user_does_not_exist'
     real_email = await get_email_address(username)
-    if email != real_email:
+    if email != real_email[0]:
         return 0, 'email_does_not_match'
     code = await generate_password(6)
     async with pending_codes_lock:
