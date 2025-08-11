@@ -17,6 +17,8 @@ queue_1v1 = None
 queue_2v2 = None
 online_users_lock = None
 room_lock = None
+pending_codes = {}
+pending_codes_lock = None
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
@@ -85,9 +87,9 @@ async def room_exists(code):
 
 # Everything needed to create a new account
 
-async def generate_password(username):
+async def generate_password(len):
     characters = 'acdefghjkmnpqrtuvwxyzACDEFGHJKMNPQRTUVWXYZ234679'
-    password = ''.join(random.choice(characters) for _ in range(12))
+    password = ''.join(random.choice(characters) for _ in range(len))
     return password
 
 
@@ -166,6 +168,39 @@ async def delete_user(username):
     await asyncio.to_thread(blocking_delete)
 
 
+async def get_email_address(username):
+    def blocking_login():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT email FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        conn.close()
+
+        return result
+
+    result = await asyncio.to_thread(blocking_login)
+
+    return result
+
+
+async def change_password(username, password):
+    def blocking_change():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+        try:
+            c.execute("UPDATE users SET password = ? WHERE username = ?", (password_hash, username))
+            conn.commit()
+            return 1
+        except sqlite3.IntegrityError:
+            return 0
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(blocking_change)
+
+
 async def send_email(text, email):
     if not EMAIL_USER or not EMAIL_PASS:
         print("Environment variables EMAIL_USER or EMAIL_PASS are not set.")
@@ -200,23 +235,24 @@ async def send_email(text, email):
 async def register_user(username, email):
     status = 1 - await user_exists(username)
     if not status:
-        return 0, 'username-taken'
+        return 0, 'username_taken'
     status = 1 - await email_exists(email)
     if not status:
-        return 0, 'email-taken'
-    generated_password = await generate_password(username)
+        return 0, 'email_taken'
+    generated_password = await generate_password(12)
     status = await add_user(username, generated_password, email)
     if not status:
-        return 0, 'username-taken'
+        return 0, 'username_taken'
+    code = await generate_password(6)
+    async with pending_codes_lock:
+        pending_codes[username] = code
     status = await send_email(f"""
         Hi {username},
         
         Thank you for registering an account in War of Dots!
         
-        Here are your login details. Once you sign in, you’ll stay logged in — no need to enter them again.
-        
-        Nickname: {username}
-        Password: {generated_password}
+        Here is your verification code:        
+        {code}
         You have 30 minutes to log in, otherwise the account will be deactivated.
         
         I am excited to have you in the battle. Thanks again, and enjoy the game!
@@ -225,9 +261,60 @@ async def register_user(username, email):
     """, email)
     if not status:
         await delete_user(username)
-        return 0, 'wrong-email'
+        return 0, 'email_invalid'
 
     return 1, None
+
+
+async def login1(username, email):
+    status = await user_exists(username)
+    if not status:
+        return 0, 'user_does_not_exist'
+    real_email = await get_email_address(username)
+    if email != real_email:
+        return 0, 'email_does_not_match'
+    code = await generate_password(6)
+    async with pending_codes_lock:
+        pending_codes[username] = code
+
+    status = await send_email(f"""
+        Hi {username},
+
+        Welcome back to War of Dots!
+
+        Here is your verification code:        
+        {code}
+        It is only valid for 30 minutes.
+
+        Enjoy the game!
+
+        – TeaAndPython
+    """, email)
+    if not status:
+        return 0, 'email_invalid'
+
+    return 1, None
+
+
+async def login2(username, code):
+    async with pending_codes_lock:
+        if username in pending_codes:
+            real_code = pending_codes[username]
+        else:
+            real_code = None
+    if real_code is None:
+        return 0, None, 'expired_code'
+    if real_code != code:
+        return 0, None, 'wrong_code'
+
+    generated_password = await generate_password(12)
+    status = await change_password(username, generated_password)
+    if not status:
+        return 0, None, 'expired_code'
+
+    await update_last_active(username)
+
+    return 1, generated_password, None
 
 
 # Everything needed for online user management
@@ -297,7 +384,7 @@ async def update_last_active(username: str):
     await asyncio.to_thread(blocking_update)
 
 
-async def check_login(username, password):
+async def authorize(username, password):
     def blocking_login():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
@@ -619,37 +706,41 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         connection_type = message['type']
 
-        if connection_type == 'register':
-            username = message['username']
-            email = message['email']
-            status, error = await register_user(username, email)
-            reply = 'register-success' if status else 'register-fail-' + error
-            await send_pickle(writer, pickle.dumps(reply))
-
+        if connection_type == 'register1':
+            status, error = await register_user(message['username'], message['email'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
             if not error:
-                print(f'Successfully registered {username} at {email}')
-
+                print(f"Successfully registered {message['username']} at {message['email']}")
             await asyncio.sleep(1800)  # 30 minutes
-
-            status = await check_if_active(username)
-
+            status = await check_if_active(message['username'])
             if not status:
-                await delete_user(username)
+                async with pending_codes_lock:
+                    del pending_codes[message['username']]
+                await delete_user(message['username'])
+            return
 
+        elif connection_type == 'login1':
+            status, error = await login1(message['username'], message['email'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            await asyncio.sleep(1800)  # 30 minutes
+            status = await check_if_active(message['username'])
+            if not status:
+                async with pending_codes_lock:
+                    del pending_codes[message['username']]
+            return
+
+        elif connection_type == 'login2':
+            status, password, error = await login2(message['username'], message['code'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'password': password, 'error': error}))
             return
 
         username = message['username']
         password = message['password']
 
-        status = await check_login(username, password)
+        status = await authorize(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
 
-        if connection_type == 'login':
-            reply = 'login-success' if status else 'login-fail'
-            await send_pickle(writer, pickle.dumps(reply))
-            return
-
-        elif connection_type == 'get-stats':
+        if connection_type == 'get-stats':
             if status:
                 message = await get_stats(username)
                 await send_pickle(writer, pickle.dumps(message))
@@ -708,12 +799,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def main():
-    global queue_1v1, queue_2v2, online_users_lock, room_lock
+    global queue_1v1, queue_2v2, online_users_lock, room_lock, pending_codes_lock
 
     queue_1v1 = asyncio.Queue()
     queue_2v2 = asyncio.Queue()
     online_users_lock = asyncio.Lock()
     room_lock = asyncio.Lock()
+    pending_codes_lock = asyncio.Lock()
 
     server_ip = "0.0.0.0"
     server_port = 9056
