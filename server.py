@@ -190,7 +190,7 @@ async def change_password(username, password):
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
 
         try:
-            c.execute("UPDATE users SET password = ? WHERE username = ?", (password_hash, username))
+            c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username))
             conn.commit()
             return 1
         except sqlite3.IntegrityError:
