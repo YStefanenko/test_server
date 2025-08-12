@@ -704,6 +704,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
+        if message['version'] != '0.10.2':
+            await send_pickle(writer, pickle.dumps('version-fail'))
+            return
+
         connection_type = message['type']
 
         if connection_type == 'register1':
@@ -739,16 +743,16 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         status = await authorize(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
-
-        if connection_type == 'get-stats':
-            if status:
-                message = await get_stats(username)
-                await send_pickle(writer, pickle.dumps(message))
-            else:
-                await send_pickle(writer, pickle.dumps('get-stats-fail'))
+        if not status:
+            await send_pickle(writer, pickle.dumps('authorize-fail'))
             return
 
-        if status and not await is_user_online(username):
+        if connection_type == 'get-stats':
+            message = await get_stats(username)
+            await send_pickle(writer, pickle.dumps(message))
+            return
+
+        if not await is_user_online(username):
 
             # No Delay Set Up
             sock = writer.get_extra_info('socket')
