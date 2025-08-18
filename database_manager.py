@@ -15,8 +15,6 @@ def init_db():
             score INTEGER DEFAULT 1000,
             number_of_wins INTEGER DEFAULT 0,
             number_of_games INTEGER DEFAULT 0,
-            units_destroyed INTEGER DEFAULT 0,
-            shortest_game INTEGER DEFAULT 3600,
             last_active INTEGER,
             email TEXT UNIQUE,
             title TEXT default NULL)
