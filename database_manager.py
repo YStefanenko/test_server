@@ -102,55 +102,28 @@ def main():
     else:
         parser.print_help()
 
-def drop_columns(db_path, table_name, drop_cols):
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
 
-    # Get current schema
-    cur.execute(f"PRAGMA table_info({table_name});")
-    cols_info = cur.fetchall()
-    all_cols = [col[1] for col in cols_info]
+import json
 
-    # Keep only the columns not being dropped
-    keep_cols = [c for c in all_cols if c not in drop_cols]
+conn = sqlite3.connect(DB_NAME)
+cur = conn.cursor()
 
-    # Build new schema
-    col_defs = []
-    for cid, name, col_type, notnull, dflt_value, pk in cols_info:
-        if name in keep_cols:
-            col_def = f"{name} {col_type}"
-            if pk: col_def += " PRIMARY KEY"
-            if notnull: col_def += " NOT NULL"
-            if dflt_value is not None: col_def += f" DEFAULT {dflt_value}"
-            col_defs.append(col_def)
+# Default stats
+default_stats = {
+    'units_destroyed': 0,
+    'shortest_game': 3600,
+    'minimal_casualties': 100,
+    'dev_defeated': False,
+    'campaign_completed': False
+}
 
-    col_defs_str = ", ".join(col_defs)
+# Convert to JSON string
+default_json = json.dumps(default_stats)
 
-    # Migration
-    cur.execute("PRAGMA foreign_keys=off;")
-    conn.commit()
-    cur.execute("BEGIN TRANSACTION;")
+# Add column with default JSON value
+try:
+    cur.execute(f"ALTER TABLE users ADD COLUMN stats TEXT DEFAULT '{default_json}'")
+except sqlite3.OperationalError:
+    pass  # column already exists
 
-    # Rename old table
-    cur.execute(f"ALTER TABLE {table_name} RENAME TO {table_name}_old;")
-
-    # Create new table without dropped columns
-    cur.execute(f"CREATE TABLE {table_name} ({col_defs_str});")
-
-    # Copy over data (only kept columns)
-    keep_cols_str = ", ".join(keep_cols)
-    cur.execute(f"""
-        INSERT INTO {table_name} ({keep_cols_str})
-        SELECT {keep_cols_str} FROM {table_name}_old;
-    """)
-
-    # Drop old table
-    cur.execute(f"DROP TABLE {table_name}_old;")
-
-    cur.execute("COMMIT;")
-    cur.execute("PRAGMA foreign_keys=on;")
-    conn.commit()
-    conn.close()
-
-
-drop_columns(DB_NAME, "users", ["units_destroyed", "shortest_game"])
+conn.commit()
