@@ -514,6 +514,8 @@ async def get_titles(usernames):
             result = c.fetchone()
             if result:
                 result = result[0]
+                if result is None:
+                    result = ' '
             titles.append(result)
 
         conn.close()
@@ -808,7 +810,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             message = await get_stats(username)
             await send_pickle(writer, pickle.dumps(message))
             return
-        
+
         if connection_type == 'set-title':
             message = await set_title(username, message['title'])
             return
