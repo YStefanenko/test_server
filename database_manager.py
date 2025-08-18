@@ -12,8 +12,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password_hash TEXT NOT NULL,
-            score INTEGER DEFAULT 0
-        )
+            score INTEGER DEFAULT 1000,
+            number_of_wins INTEGER DEFAULT 0,
+            number_of_games INTEGER DEFAULT 0,
+            units_destroyed INTEGER DEFAULT 0,
+            shortest_game INTEGER DEFAULT 3600,
+            last_active INTEGER,
+            email TEXT UNIQUE,
+            title TEXT default NULL)
     ''')
     conn.commit()
     conn.close()
@@ -98,6 +104,55 @@ def main():
     else:
         parser.print_help()
 
+def drop_columns(db_path, table_name, drop_cols):
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
 
-if __name__ == "__main__":
-    main()
+    # Get current schema
+    cur.execute(f"PRAGMA table_info({table_name});")
+    cols_info = cur.fetchall()
+    all_cols = [col[1] for col in cols_info]
+
+    # Keep only the columns not being dropped
+    keep_cols = [c for c in all_cols if c not in drop_cols]
+
+    # Build new schema
+    col_defs = []
+    for cid, name, col_type, notnull, dflt_value, pk in cols_info:
+        if name in keep_cols:
+            col_def = f"{name} {col_type}"
+            if pk: col_def += " PRIMARY KEY"
+            if notnull: col_def += " NOT NULL"
+            if dflt_value is not None: col_def += f" DEFAULT {dflt_value}"
+            col_defs.append(col_def)
+
+    col_defs_str = ", ".join(col_defs)
+
+    # Migration
+    cur.execute("PRAGMA foreign_keys=off;")
+    conn.commit()
+    cur.execute("BEGIN TRANSACTION;")
+
+    # Rename old table
+    cur.execute(f"ALTER TABLE {table_name} RENAME TO {table_name}_old;")
+
+    # Create new table without dropped columns
+    cur.execute(f"CREATE TABLE {table_name} ({col_defs_str});")
+
+    # Copy over data (only kept columns)
+    keep_cols_str = ", ".join(keep_cols)
+    cur.execute(f"""
+        INSERT INTO {table_name} ({keep_cols_str})
+        SELECT {keep_cols_str} FROM {table_name}_old;
+    """)
+
+    # Drop old table
+    cur.execute(f"DROP TABLE {table_name}_old;")
+
+    cur.execute("COMMIT;")
+    cur.execute("PRAGMA foreign_keys=on;")
+    conn.commit()
+    conn.close()
+
+
+drop_columns(DB_NAME, "users", ["units_destroyed", "shortest_game"])
