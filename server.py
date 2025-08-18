@@ -9,6 +9,8 @@ import socket
 from email.message import EmailMessage
 import aiosmtplib
 import os
+import json
+
 
 online_users = set()
 rooms = {}
@@ -485,23 +487,23 @@ async def get_stats(username):
         c = conn.cursor()
 
         # Get the user's score
-        c.execute("SELECT score, number_of_games, number_of_wins, units_destroyed, shortest_game FROM users WHERE username = ?", (username,))
+        c.execute("SELECT score, number_of_games, number_of_wins, stats FROM users WHERE username = ?", (username,))
         result = c.fetchone()
         if not result:
             conn.close()
-            return {"username": username, "score": 0, "rank": 1000, "number_of_games": 0, "number_of_wins": 0, "units_destroyed": 0, "shortest_game": 3600}
+            return 'get-stats-fail'
 
         score = result[0]
         number_of_games = result[1]
         number_of_wins = result[2]
-        units_destroyed = result[3]
-        shortest_game = result[4]
+        other_stats = json.loads(result[3])
 
         # Count users with a higher score (rank = count + 1)
         c.execute("SELECT COUNT(*) FROM users WHERE score > ?", (score,))
         higher_count = c.fetchone()[0]
         conn.close()
-        return {"username": username, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": units_destroyed, "shortest_game": shortest_game}
+
+        return {"username": username, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": other_stats['units_destroyed'], "shortest_game":  other_stats['shortest_game'], "minimal_casualties": other_stats['minimal_casualties'],  "dev_defeated": other_stats['dev_defeated'],  "campaign_completed": other_stats['campaign_completed']}
 
     return await asyncio.to_thread(blocking_get)
 
