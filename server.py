@@ -448,16 +448,39 @@ async def score_game(winner: str, loser: str, additional_info=None):
             try:
                 if additional_info[0]:
                     data = pickle.loads(additional_info[0])
-                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (data['destroyed'], winner))
-                    c.execute('SELECT shortest_game FROM users WHERE username = ?', (winner,))
+
+                    c.execute('SELECT stats FROM users WHERE username = ?', (winner,))
                     result = c.fetchone()
                     if result:
-                        if additional_info['time'] < result:
-                            c.execute('UPDATE users SET shortest_game = ? WHERE username = ?', (data['time'], winner))
+                        result = json.loads(result[0])
+
+                        # KEEP UNTIL ITCH UPDATE
+                        if 'destroyed' in data:
+                            result['units_destroyed'] = result['units_destroyed'] + data['destroyed']
+                            if result['shortest_game'] >= data['time']:
+                                result['shortest_game'] = data['time']
+                        else:
+                            pass
+
+                        result = json.dumps(result)
+                        c.execute('UPDATE users SET stats = ? WHERE username = ?', (result, winner))
 
                 if additional_info[1]:
                     data = pickle.loads(additional_info[1])
-                    c.execute('UPDATE users SET units_destroyed = units_destroyed + ? WHERE username = ?', (data['destroyed'], loser))
+
+                    c.execute('SELECT stats FROM users WHERE username = ?', (winner,))
+                    result = c.fetchone()
+                    if result:
+                        result = json.loads(result[0])
+
+                        # KEEP UNTIL ITCH UPDATE
+                        if 'destroyed' in data:
+                            result['units_destroyed'] = result['units_destroyed'] + data['destroyed']
+                        else:
+                            pass
+
+                        result = json.dumps(result)
+                        c.execute('UPDATE users SET stats = ? WHERE username = ?', (result, winner))
 
             except Exception:
                 print('Error when recording stats')
