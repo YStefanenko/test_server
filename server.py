@@ -513,7 +513,7 @@ async def get_titles(usernames):
                 if result is None:
                     result = ''
                 else:
-                    result = ' - ' + result
+                    result = '  ' + result
             titles.append(result)
 
         conn.close()
@@ -698,7 +698,7 @@ async def game_session_1v1(players, score=True):
 
                     await send_pickle(players[0].writer, pickle.dumps('end-game'))
                     await score_game(players, 0, additional_info=message2['stats'])
-                    print(f'[GAME END] Winner: {players[0]}')
+                    print(f'[GAME END] Winner: {players[0].username}')
                     break
 
             data = pickle.dumps(message1 | message2)
@@ -972,4 +972,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
