@@ -513,7 +513,7 @@ async def get_titles(usernames):
                 if result is None:
                     result = ''
                 else:
-                    result = ' ' + result
+                    result = ' - ' + result
             titles.append(result)
 
         conn.close()
@@ -972,3 +972,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
