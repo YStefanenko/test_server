@@ -528,6 +528,7 @@ async def set_title(username, title):
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
         c.execute('UPDATE users SET title = ? WHERE username = ?', (title, username))
+        conn.commit()
         conn.close()
         return
 
