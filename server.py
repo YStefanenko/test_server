@@ -456,10 +456,14 @@ async def score_game(players, nw, additional_info=None):
 
                 result['units_destroyed'] = result['units_destroyed'] + additional_info['casualties'][loser]
                 if result['shortest_game'] >= additional_info['time']:
-                    result['shortest_game'] = additional_info['time']
+                    # No cheating check
+                    if additional_info['casualties'][loser] > 0 or additional_info['casualties'][winner] > 0:
+                        result['shortest_game'] = additional_info['time']
 
                 if result['minimal_casualties'] > additional_info['casualties'][winner]:
-                    result['minimal_casualties'] = additional_info['casualties'][winner]
+                    # No cheating check
+                    if additional_info['casualties'][loser] > 0:
+                        result['minimal_casualties'] = additional_info['casualties'][winner]
                 if players[nl].username == 'TeaAndPython':
                     result['dev_defeated'] = True
 
@@ -581,7 +585,6 @@ async def game_session_1v1(players, score=True):
             data = await asyncio.gather(receive_ingame(players[0].reader), receive_ingame(players[1].reader))
 
             message1, message2 = data
-            print(data)
 
             # KEEP UNTIL ITCH VERSION IS UPDATED
             if not (type(message1) is dict and type(message2) is dict):
@@ -678,7 +681,7 @@ async def game_session_1v1(players, score=True):
                             break
 
                         response = pickle.loads(response)
-                        if response['end-game'] == message1['end-game']:
+                        if response['end-game'] == message2['end-game']:
                             if response['end-game'] == 'blue':
                                 await score_game(players, 0, additional_info=message2['stats'])
                                 print(f'[GAME END] Winner: {players[0].username}')
@@ -693,7 +696,7 @@ async def game_session_1v1(players, score=True):
                         break
 
                     await send_pickle(players[0].writer, pickle.dumps('end-game'))
-                    await score_game(players, 0, additional_info=message1['stats'])
+                    await score_game(players, 0, additional_info=message2['stats'])
                     print(f'[GAME END] Winner: {players[0]}')
                     break
 
