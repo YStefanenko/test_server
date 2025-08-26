@@ -1,6 +1,8 @@
 import sqlite3
 import bcrypt
 import argparse
+import json
+
 
 DB_NAME = 'database.db'
 
@@ -16,6 +18,7 @@ def init_db():
             number_of_wins INTEGER DEFAULT 0,
             number_of_games INTEGER DEFAULT 0,
             last_active INTEGER,
+            stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false}',
             email TEXT UNIQUE,
             title TEXT default NULL)
     ''')
@@ -60,9 +63,10 @@ def change_password(username, new_password):
 def list_users():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT username, score FROM users')
+    c.execute('SELECT username, score FROM users ORDER BY score DESC')
     users = c.fetchall()
     conn.close()
+
     for username, score in users:
         print(f"{username}: {score}")
 
@@ -103,11 +107,6 @@ def main():
         parser.print_help()
 
 
-import json
-
-conn = sqlite3.connect(DB_NAME)
-cur = conn.cursor()
-
 # Default stats
 default_stats = {
     'units_destroyed': 0,
@@ -120,10 +119,4 @@ default_stats = {
 # Convert to JSON string
 default_json = json.dumps(default_stats)
 
-# Add column with default JSON value
-try:
-    cur.execute(f"ALTER TABLE users ADD COLUMN stats TEXT DEFAULT '{default_json}'")
-except sqlite3.OperationalError:
-    pass  # column already exists
-
-conn.commit()
+main()
