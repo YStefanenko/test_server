@@ -70,6 +70,13 @@ def list_users():
     for username, score in users:
         print(f"{username}: {score}")
 
+def add_rows():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("ALTER TABLE users ADD COLUMN money INTEGER DEFAULT 0;")
+    c.execute("ALTER TABLE users ADD COLUMN items TEXT DEFAULT '[]';")
+    conn.commit()
+    conn.close()
 
 def main():
     parser = argparse.ArgumentParser(description="User database manager")
@@ -119,4 +126,6 @@ default_stats = {
 # Convert to JSON string
 default_json = json.dumps(default_stats)
 
-main()
+# main()
+add_rows()
+
