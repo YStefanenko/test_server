@@ -486,6 +486,36 @@ async def score_game(players, nw, additional_info=None):
     await asyncio.to_thread(blocking_score)
 
 
+async def buy_item(username, item, price):
+    def blocking_get():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT money FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        if not result[0]:
+            conn.close()
+            return 0, 'error'
+        if result[0] < price:
+            conn.close()
+            return 0, 'error'
+        new_money = result[0] - price
+        c.execute('UPDATE users SET money = ? WHERE username = ?', (new_money, username))
+
+        c.execute('SELECT items FROM users WHERE username = ?', (username,))
+        result = c.fetchone()
+        items = json.loads(result[0])
+        items.append(item)
+        items_json = json.dumps(items)
+        c.execute("UPDATE users SET items = ? WHERE username = ?", (items_json, username))
+
+        conn.commit()
+        conn.close()
+        return 1, None
+
+    status, error = await asyncio.to_thread(blocking_get)
+    return status, error
+
+
 async def get_score(username):
     def blocking_get():
         conn = sqlite3.connect(database_name)
@@ -541,7 +571,7 @@ async def get_stats(username):
         c = conn.cursor()
 
         # Get the user's score
-        c.execute("SELECT score, title, number_of_games, number_of_wins, stats FROM users WHERE username = ?", (username,))
+        c.execute("SELECT score, title, number_of_games, number_of_wins, money, items, stats FROM users WHERE username = ?", (username,))
         result = c.fetchone()
         if not result:
             conn.close()
@@ -551,13 +581,15 @@ async def get_stats(username):
         title = result[1]
         number_of_games = result[2]
         number_of_wins = result[3]
-        other_stats = json.loads(result[4])
+        money = result[4]
+        items = json.loads(result[5])
+        other_stats = json.loads(result[6])
 
         # Count users with a higher score (rank = count + 1)
         c.execute("SELECT COUNT(*) FROM users WHERE score > ?", (score,))
         higher_count = c.fetchone()[0]
         conn.close()
-        return {"username": username, "title": title, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": other_stats['units_destroyed'], "shortest_game":  other_stats['shortest_game'], "minimal_casualties": other_stats['minimal_casualties'],  "dev_defeated": other_stats['dev_defeated'],  "campaign_completed": other_stats['campaign_completed']}
+        return {"username": username, "title": title, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": other_stats['units_destroyed'], "shortest_game":  other_stats['shortest_game'], "minimal_casualties": other_stats['minimal_casualties'],  "dev_defeated": other_stats['dev_defeated'],  "campaign_completed": other_stats['campaign_completed'], 'money': money, 'items': items}
 
     return await asyncio.to_thread(blocking_get)
 
@@ -890,6 +922,13 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if connection_type == 'get-stats':
             message = await get_stats(username)
             await send_pickle(writer, pickle.dumps(message))
+            return
+
+        if connection_type == 'buy-item':
+            item = message['item']
+            price = message['price']
+            status, error = await buy_item(username, item, price)
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
             return
 
         if connection_type == 'set-title':
