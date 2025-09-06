@@ -20,7 +20,9 @@ def init_db():
             last_active INTEGER,
             stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false}',
             email TEXT UNIQUE,
-            title TEXT default NULL)
+            title TEXT default NULL,
+            money INTEGER DEFAULT 0,
+            items TEXT DEFAULT '[]',
     ''')
     conn.commit()
     conn.close()
@@ -63,12 +65,23 @@ def change_password(username, new_password):
 def list_users():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT username, score FROM users ORDER BY score DESC')
+    c.execute('SELECT username, score, money FROM users ORDER BY score DESC')
     users = c.fetchall()
     conn.close()
 
-    for username, score in users:
-        print(f"{username}: {score}")
+    for username, score, money in users:
+        print(f"{username}: {score}   with {money}$")
+
+
+def add_money(username, amount):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute(
+        'UPDATE users SET money = money + ? WHERE username = ?',
+        (amount, username))
+    conn.commit()
+    conn.close()
+    print(f"Money for '{username}' increased by {amount}.")
 
 
 def main():
@@ -93,6 +106,12 @@ def main():
     # List users
     subparsers.add_parser("list", help="List all users")
 
+    # Add money
+    parser_delete = subparsers.add_parser("give", help="Delete an existing user")
+    parser_delete.add_argument("username", help="Username to to give")
+    parser_delete.add_argument("money", help="Amount")
+
+
     args = parser.parse_args()
 
     if args.command == "add":
@@ -103,6 +122,8 @@ def main():
         change_password(args.username, args.new_password)
     elif args.command == "list":
         list_users()
+    elif args.command == "give":
+        add_money(args.username, args.money)
     else:
         parser.print_help()
 
@@ -120,4 +141,3 @@ default_stats = {
 default_json = json.dumps(default_stats)
 
 main()
-
