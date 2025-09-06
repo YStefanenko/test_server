@@ -84,6 +84,24 @@ def add_money(username, amount):
     print(f"Money for '{username}' increased by {amount}.")
 
 
+def clear_items(username):
+    default_value = json.dumps([])
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute(
+        'UPDATE users SET items = ? WHERE username = ?',
+        (default_value, username)
+    )
+    conn.commit()
+
+    if c.rowcount == 0:
+        print(f"No user found with username '{username}'.")
+    else:
+        print(f"Items for '{username}' reset to {default_value}.")
+
+    conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="User database manager")
 
@@ -110,6 +128,11 @@ def main():
     parser_delete = subparsers.add_parser("give", help="Delete an existing user")
     parser_delete.add_argument("username", help="Username to to give")
     parser_delete.add_argument("money", help="Amount")
+    
+    # Clear items
+    parser_delete = subparsers.add_parser("clear", help="Clear items")
+    parser_delete.add_argument("username", help="Username to clear")
+    
 
 
     args = parser.parse_args()
@@ -124,6 +147,8 @@ def main():
         list_users()
     elif args.command == "give":
         add_money(args.username, args.money)
+    elif args.command == "clear":
+        clear_items(args.username)
     else:
         parser.print_help()
 
