@@ -443,6 +443,7 @@ async def score_game(players, nw, additional_info=None):
 
         # Update number of wins for winner
         c.execute('UPDATE users SET number_of_wins = number_of_wins + 1 WHERE username = ?', (players[nw].username,))
+        c.execute('UPDATE users SET money = money + 1 WHERE username = ?', (players[nw].username,))
 
         # Update the scores
         c.execute('UPDATE users SET score = ? WHERE username = ?', (score_winner, players[nw].username))
