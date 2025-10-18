@@ -843,7 +843,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
-        if message['version'] != '0.10.2':
+        if message['version'] != '0.10.5':
             await send_pickle(writer, pickle.dumps('version-fail'))
             return
 
@@ -978,3 +978,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
