@@ -421,8 +421,6 @@ async def update_elo(score_a, score_b, result, k=50):
 
 
 async def score_game(players, nw, additional_info=None):
-    winner = 'blue' if nw == 0 else 'red'
-    loser = 'red' if winner == 'blue' else 'blue'
     nl = 1 - nw
 
     # Get current scores
@@ -455,16 +453,16 @@ async def score_game(players, nw, additional_info=None):
             if result:
                 result = json.loads(result[0])
 
-                result['units_destroyed'] = result['units_destroyed'] + additional_info['casualties'][loser]
+                result['units_destroyed'] = result['units_destroyed'] + additional_info['casualties'][nl]
                 if result['shortest_game'] >= additional_info['time']:
                     # No cheating check
-                    if additional_info['casualties'][loser] > 0 or additional_info['casualties'][winner] > 0:
+                    if additional_info['casualties'][nl] > 0 or additional_info['casualties'][nw] > 0:
                         result['shortest_game'] = additional_info['time']
 
-                if result['minimal_casualties'] > additional_info['casualties'][winner]:
+                if result['minimal_casualties'] > additional_info['casualties'][nw]:
                     # No cheating check
-                    if additional_info['casualties'][loser] > 0:
-                        result['minimal_casualties'] = additional_info['casualties'][winner]
+                    if additional_info['casualties'][nl] > 0:
+                        result['minimal_casualties'] = additional_info['casualties'][nw]
                 if players[nl].username == 'TeaAndPython':
                     result['dev_defeated'] = True
 
@@ -476,7 +474,7 @@ async def score_game(players, nw, additional_info=None):
                 if result:
                     result = json.loads(result[0])
 
-                    result['units_destroyed'] = result['units_destroyed'] + additional_info['casualties'][winner]
+                    result['units_destroyed'] = result['units_destroyed'] + additional_info['casualties'][nw]
 
                     result = json.dumps(result)
                     c.execute('UPDATE users SET stats = ? WHERE username = ?', (result, players[nl].username))
@@ -610,8 +608,8 @@ async def game_session_1v1(players, score=True):
         map_final = random.randint(1, 36)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
-        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
+        await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
@@ -620,46 +618,14 @@ async def game_session_1v1(players, score=True):
 
             message1, message2 = data
 
-            # KEEP UNTIL ITCH VERSION IS UPDATED
-            if not (type(message1) is dict and type(message2) is dict):
-                if message1 == 0 or message2 == 0:
-                    print(f"[ERROR] game_session_1v1 is interrupted")
-                if message2 == 0 or message2 == 'surrender':
-                    await send_pickle(players[0].writer, pickle.dumps('win'))
-                    stats = await asyncio.gather(read_pickle(players[0].reader), read_pickle(players[1].reader))
-                    if score:
-                        await score_game(players[0].username, players[1].username)
-                    print(f"[GAME END] 1v1 winner: {players[0].username}")
-                elif message1 == 0 or message1 == 'surrender':
-                    await send_pickle(players[1].writer, pickle.dumps('win'))
-                    stats = await asyncio.gather(read_pickle(players[1].reader), read_pickle(players[0].reader))
-                    if score:
-                        await score_game(players[1].username, players[0].username)
-                    print(f"[GAME END] 1v1 winner: {players[1].username}")
-                elif message1 == 'blue' and message2 == 'blue':
-                    stats = await asyncio.gather(read_pickle(players[0].reader), read_pickle(players[1].reader))
-                    if score:
-                        await score_game(players[0].username, players[1].username)
-                    print(f"[GAME END] 1v1 winner: {players[0].username}")
-                elif message1 == 'red' and message2 == 'red':
-                    stats = await asyncio.gather(read_pickle(players[1].reader), read_pickle(players[0].reader))
-                    if score:
-                        await score_game(players[1].username, players[0].username)
-                    print(f"[GAME END] 1v1 winner: {players[1].username}")
-                else:
-                    print("[GAME END] 1v1 winner: No winner")
-                break
-
-
-            # REAL END GAME CHECK
             if 'end-game' in message1 or 'end-game' in message2:
                 if 'end-game' in message1 and 'end-game' in message2:
-                    if message1['end-game'] == message2['end-game'] == 'blue':
+                    if message1['end-game'] == message2['end-game'] == 0:
                         await score_game(players, 0, additional_info=message1['stats'])
                         print(f'[GAME END] Winner: {players[0].username}')
                         break
 
-                    if message1['end-game'] == message2['end-game'] == 'red':
+                    if message1['end-game'] == message2['end-game'] == 1:
                         await score_game(players, 1, additional_info=message2['stats'])
                         print(f'[GAME END] Winner: {players[1].username}')
                         break
@@ -677,7 +643,7 @@ async def game_session_1v1(players, score=True):
                     print(f'[GAME END] Winner: None')
 
                 if 'end-game' in message1:
-                    if message1['end-game'] == 'blue' or message1['end-game'] == 'red':
+                    if message1['end-game'] == 0 or message1['end-game'] == 1:
                         await send_pickle(players[1].writer, pickle.dumps('end-game'))
                         response = await read_pickle(players[1].reader)
                         if not response:
@@ -687,7 +653,7 @@ async def game_session_1v1(players, score=True):
 
                         response = pickle.loads(response)
                         if response['end-game'] == message1['end-game']:
-                            if response['end-game'] == 'blue':
+                            if response['end-game'] == 0:
                                 await score_game(players, 0, additional_info=message1['stats'])
                                 print(f'[GAME END] Winner: {players[0].username}')
 
@@ -706,7 +672,7 @@ async def game_session_1v1(players, score=True):
                     break
 
                 if 'end-game' in message2:
-                    if message2['end-game'] == 'blue' or message2['end-game'] == 'red':
+                    if message2['end-game'] == 0 or message2['end-game'] == 1:
                         await send_pickle(players[0].writer, pickle.dumps('end-game'))
                         response = await read_pickle(players[0].reader)
                         if not response:
@@ -716,7 +682,7 @@ async def game_session_1v1(players, score=True):
 
                         response = pickle.loads(response)
                         if response['end-game'] == message2['end-game']:
-                            if response['end-game'] == 'blue':
+                            if response['end-game'] == 0:
                                 await score_game(players, 0, additional_info=message2['stats'])
                                 print(f'[GAME END] Winner: {players[0].username}')
 
@@ -877,7 +843,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
-        if message['version'] != '0.10.5':
+        if message['version'] != '0.10.2':
             await send_pickle(writer, pickle.dumps('version-fail'))
             return
 
@@ -1012,5 +978,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
