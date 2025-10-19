@@ -608,8 +608,8 @@ async def game_session_1v1(players, score=True):
         map_final = random.randint(1, 36)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
-        await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
+        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
@@ -978,4 +978,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
