@@ -39,20 +39,22 @@ class Player:
 class GameRoom:
     def __init__(self, code, mode, custom_map=None):
         self.code = code
-        self.mode = mode
         self.players = []
+        self.mode = mode
+        self.nplayers = 2 if self.mode == '1v1' else 4
 
-        self.custom_map = custom_map
-
-        if self.custom_map is None:
+        if custom_map is None:
             self.custom_map = pickle.dumps(None)
+        else:
+            self.custom_map = custom_map
+
 
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
             await send_pickle(player.writer, self.custom_map)
-        if (len(self.players) > 1 and self.mode == '1v1') or (len(self.players) > 3 and self.mode == '2v2'):
-            await asyncio.sleep(5)
+        if len(self.players) >= self.nplayers:
+            await asyncio.sleep(2)
             await self.start()
 
     async def start(self):
@@ -60,6 +62,9 @@ class GameRoom:
             asyncio.create_task(game_session_1v1(self.players, score=False))
         if self.mode == '2v2':
             asyncio.create_task(game_session_2v2(self.players, score=False))
+        if self.mode == 'v4':
+            asyncio.create_task(game_session_v4(self.players, score=False))
+
         await delete_game_room(self.code)
 
     async def check_room(self):
@@ -776,6 +781,64 @@ async def game_session_2v2(players, score=True):
         await disconnect(players[3])
 
 
+async def game_session_v4(players, score=True):
+    try:
+        map_final = random.randint(1, 36)
+        random.shuffle(players)
+        titles = await get_titles([player.username for player in players])
+        await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
+        await send_pickle(players[2].writer, pickle.dumps({'color': 2, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
+        await send_pickle(players[3].writer, pickle.dumps({'color': 3, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
+
+        print(f"[GAME] v4 started: {players[0].username} vs {players[1].username} vs {players[2].username} vs {players[3].username}")
+
+        await asyncio.sleep(1)
+
+        while True:
+            start_time = time.monotonic()
+            data = await asyncio.gather(receive_ingame(players[0].reader), receive_ingame(players[1].reader), receive_ingame(players[2].reader), receive_ingame(players[3].reader))
+
+            message1, message2, message3, message4 = data
+
+            count = 0
+            if 'end-game' in message1:
+                message1 = {}
+                count += 1
+            if 'end-game' in message2:
+                message2 = {}
+                count += 1
+            if 'end-game' in message3:
+                message3 = {}
+                count += 1
+            if 'end-game' in message4:
+                message4 = {}
+                count += 1
+
+            if count >= 3:
+                await send_pickle(players[0].writer, pickle.dumps('end-game'))
+                await send_pickle(players[1].writer, pickle.dumps('end-game'))
+                await send_pickle(players[2].writer, pickle.dumps('end-game'))
+                await send_pickle(players[3].writer, pickle.dumps('end-game'))
+                print(f"[GAME END] v4")
+                break
+
+            data = pickle.dumps(message1 | message2 | message3 | message4)
+            await asyncio.gather(send_pickle(players[0].writer, data), send_pickle(players[1].writer, data), send_pickle(players[2].writer, data), send_pickle(players[3].writer, data))
+
+            elapsed = time.monotonic() - start_time
+            if elapsed < 1.03:
+                await asyncio.sleep(1.03 - elapsed)
+
+    except Exception as e:
+        print(f"[ERROR] game_session_v4: {e}")
+    finally:
+        await disconnect(players[0])
+        await disconnect(players[1])
+        await disconnect(players[2])
+        await disconnect(players[3])
+
+
 async def is_connected(player):
     try:
         if await send_pickle(player.writer, pickle.dumps("check")) == 0:
@@ -843,7 +906,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
-        if message['version'] != '0.10.5':
+        if message['version'] != '0.10.5' or message['version'] != '0.11.1':
             await send_pickle(writer, pickle.dumps('version-fail'))
             return
 
@@ -978,5 +1041,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
