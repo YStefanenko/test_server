@@ -984,8 +984,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     if custom_map:
                         await send_pickle(player.writer, pickle.dumps('send_map'))
                         custom_map = await read_pickle(reader)
-                    else:
-                        await send_pickle(player.writer, pickle.dumps(None))
 
                     room = GameRoom(code, connection_type, custom_map)
                     await create_game_room(code, room)
@@ -1041,3 +1039,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
