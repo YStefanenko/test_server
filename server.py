@@ -44,15 +44,15 @@ class GameRoom:
         self.nplayers = 2 if self.mode == '1v1' else 4
 
         if custom_map is None:
-            self.custom_map = pickle.dumps(None)
+            self.custom_map = None
         else:
-            self.custom_map = custom_map
+            self.custom_map = pickle.loads(custom_map)
 
 
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
-            await send_pickle(player.writer, self.custom_map)
+            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map}))
         if len(self.players) >= self.nplayers:
             await asyncio.sleep(2)
             await self.start()
@@ -906,7 +906,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
-        if message['version'] != '0.10.5' and message['version'] != '0.11.1':
+        if message['version'] != '0.10.5' or message['version'] != '0.11.1':
             await send_pickle(writer, pickle.dumps('version-fail'))
             return
 
@@ -1041,4 +1041,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
