@@ -784,7 +784,7 @@ async def game_session_2v2(players, score=True):
 
 async def game_session_v4(players, score=True):
     try:
-        map_final = random.randint(37, 37)
+        map_final = random.randint(37, 39)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
         await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
@@ -1065,3 +1065,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
