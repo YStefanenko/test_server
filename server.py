@@ -17,6 +17,7 @@ rooms = {}
 database_name = 'database.db'
 queue_1v1 = None
 queue_2v2 = None
+queue_v4 = None
 online_users_lock = None
 room_lock = None
 pending_codes = {}
@@ -52,7 +53,7 @@ class GameRoom:
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
-            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map}))
+            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map, 'host': self.players[0].username}))
         if len(self.players) >= self.nplayers:
             await asyncio.sleep(2)
             await self.start()
@@ -783,7 +784,7 @@ async def game_session_2v2(players, score=True):
 
 async def game_session_v4(players, score=True):
     try:
-        map_final = random.randint(1, 36)
+        map_final = random.randint(37, 37)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
         await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
@@ -896,6 +897,24 @@ async def matchmaking_2v2():
         asyncio.create_task(game_session_2v2(players))
 
 
+
+async def matchmaking_v4():
+    print(f"Matchmaking v4 running")
+    while True:
+        players = []
+        while len(players) < 4:
+            try:
+                player = queue_v4.get_nowait()
+                players.append(player)
+            except asyncio.QueueEmpty:
+                for i in range(len(players) - 1, -1, -1):
+                    if not await is_connected(players[i]):
+                        await disconnect(players[i])
+                        players.pop(i)
+                await asyncio.sleep(2)
+        asyncio.create_task(game_session_v4(players))
+
+
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     player = None
 
@@ -997,12 +1016,15 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             elif connection_type == '2v2':
                 await queue_2v2.put(player)
                 print(f"[QUEUE] {username} joined 2v2 queue")
+            elif connection_type == 'v4':
+                await queue_v4.put(player)
+                print(f"[QUEUE] {username} joined v4 queue")
             else:
                 await remove_online_user(username)
                 player = None
                 print(f"[QUEUE] {username} failed to join queue (invalid state or already online)")
         else:
-            await send_pickle(writer, pickle.dumps('login-fail'))
+            await send_pickle(writer, pickle.dumps('authorize-fail'))
 
     except Exception as e:
         print(f"[ERROR] handle_client: {e}")
@@ -1019,10 +1041,11 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def main():
-    global queue_1v1, queue_2v2, online_users_lock, room_lock, pending_codes_lock
+    global queue_1v1, queue_2v2, queue_v4, online_users_lock, room_lock, pending_codes_lock
 
     queue_1v1 = asyncio.Queue()
     queue_2v2 = asyncio.Queue()
+    queue_v4 = asyncio.Queue()
     online_users_lock = asyncio.Lock()
     room_lock = asyncio.Lock()
     pending_codes_lock = asyncio.Lock()
@@ -1032,6 +1055,7 @@ async def main():
 
     asyncio.create_task(matchmaking_1v1())
     asyncio.create_task(matchmaking_2v2())
+    asyncio.create_task(matchmaking_v4())
     asyncio.create_task(matchmaking_rooms())
     server = await asyncio.start_server(handle_client, server_ip, server_port)
     print(f"Server started at {server_ip}:{server_port}")
@@ -1041,5 +1065,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
