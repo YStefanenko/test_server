@@ -611,7 +611,7 @@ async def disconnect(player):
 
 async def game_session_1v1(players, score=True):
     try:
-        map_final = random.randint(1, 36)
+        map_final = random.randint(1, 30)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
         await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
@@ -860,7 +860,7 @@ async def matchmaking_rooms():
         async with room_lock:
             for code in rooms:
                 asyncio.create_task(rooms[code].check_room())
-        await asyncio.sleep(8)
+        await asyncio.sleep(4)
 
 
 async def matchmaking_1v1():
@@ -1065,5 +1065,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
