@@ -1082,12 +1082,16 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             return
 
         message = pickle.loads(message)
-
+        
         if message['version'] != '0.11.2' and message['version'] != '0.12.1':
-            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
+            # DELETE AFTER 0.11.2
+            await send_pickle(writer, pickle.dumps('version-fail'))
+
+            # await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
             return
 
         if message['version'] == '0.11.2':
+            # DELETE AFTER 0.11.2
             await handle_client_old(reader, writer)
             return
 
@@ -1235,3 +1239,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
