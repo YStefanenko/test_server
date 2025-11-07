@@ -27,6 +27,137 @@ EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
+# DELETE AFTER 0.11.2
+async def handle_client_old(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    player = None
+
+    try:
+        message = await read_pickle(reader)
+        if message == 0:
+            return
+
+        message = pickle.loads(message)
+
+        if message['version'] != '0.11.2' and message['version'] != '0.12.1':
+            await send_pickle(writer, pickle.dumps('version-fail'))
+            return
+
+        if message['version'] != '0.11.2':
+            await handle_client(reader, writer)
+            return
+
+        connection_type = message['type']
+
+        if connection_type == 'register1':
+            status, error = await register_user(message['username'], message['email'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            if not error:
+                print(f"Successfully registered {message['username']} at {message['email']}")
+            await asyncio.sleep(1800)  # 30 minutes
+            status = await check_if_active(message['username'])
+            if not status:
+                async with pending_codes_lock:
+                    del pending_codes[message['username']]
+                await delete_user(message['username'])
+            return
+
+        elif connection_type == 'login1':
+            status, error = await login1(message['username'], message['email'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            await asyncio.sleep(1800)  # 30 minutes
+            status = await check_if_active(message['username'])
+            if not status:
+                async with pending_codes_lock:
+                    del pending_codes[message['username']]
+            return
+
+        elif connection_type == 'login2':
+            status, password, error = await login2(message['username'], message['code'])
+            await send_pickle(writer, pickle.dumps({'status': status, 'password': password, 'error': error}))
+            return
+
+        username = message['username']
+        password = message['password']
+
+        status = await authorize(username, password)
+        print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
+        if not status:
+            await send_pickle(writer, pickle.dumps('authorize-fail'))
+            return
+
+        if connection_type == 'get-stats':
+            message = await get_stats(username)
+            await send_pickle(writer, pickle.dumps(message))
+            return
+
+        if connection_type == 'buy-item':
+            item = message['item']
+            price = message['price']
+            status, error = await buy_item(username, item, price)
+            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            return
+
+        if connection_type == 'set-title':
+            await set_title(username, message['title'])
+            return
+
+        if not await is_user_online(username):
+
+            # No Delay Set Up
+            sock = writer.get_extra_info('socket')
+            if sock:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+            player = Player(username=username, reader=reader, writer=writer, score=await get_score(username))
+            await add_online_user(username)
+            code = message['code']
+            if code:
+                if await room_exists(code):
+                    await rooms[code].add_player(player)
+                    print(f"[QUEUE] {username} joined a game room")
+                else:
+                    custom_map = message['custom_map']
+                    if custom_map:
+                        await send_pickle(player.writer, pickle.dumps('send_map'))
+                        custom_map = await read_pickle(reader)
+                    else:
+                        custom_map = None
+
+                    room = GameRoom(code, connection_type, custom_map)
+                    await create_game_room(code, room)
+                    await rooms[code].add_player(player)
+                    print(f"[QUEUE] {username} created a game room")
+            elif connection_type == '1v1':
+                await queue_1v1.put(player)
+                print(f"[QUEUE] {username} joined 1v1 queue")
+            elif connection_type == '2v2':
+                await queue_2v2.put(player)
+                print(f"[QUEUE] {username} joined 2v2 queue")
+            elif connection_type == 'v4':
+                await queue_v4.put(player)
+                print(f"[QUEUE] {username} joined v4 queue")
+            else:
+                await remove_online_user(username)
+                player = None
+                print(f"[QUEUE] {username} failed to join queue (invalid state or already online)")
+        else:
+            await send_pickle(writer, pickle.dumps('authorize-fail'))
+
+    except Exception as e:
+        print(f"[ERROR] handle_client: {e}")
+        if player:
+            await disconnect(player)
+
+    finally:
+        if player is None:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception as e:
+                print(f"[ERROR] handle_client: {e}")
+
+
+
 class Player:
     def __init__(self, username, reader, writer, score):
         self.username = username
@@ -44,6 +175,8 @@ class GameRoom:
         self.mode = mode
         self.nplayers = 2 if self.mode == '1v1' else 4
 
+        self.ready = False
+
         if custom_map is None:
             self.custom_map = None
         else:
@@ -53,10 +186,10 @@ class GameRoom:
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
-            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map, 'host': self.players[0].username}))
+            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map, 'players': [self.players[i].username for i in range(len(self.players))]}))
+
         if len(self.players) >= self.nplayers:
-            await asyncio.sleep(2)
-            await self.start()
+            self.ready = True
 
     async def start(self):
         if self.mode == '1v1':
@@ -69,10 +202,23 @@ class GameRoom:
         await delete_game_room(self.code)
 
     async def check_room(self):
-        for player in self.players:
-            if not await is_connected(player):
-                await disconnect(player)
-                self.players.remove(player)
+        info = {'players': [self.players[i].username for i in range(len(self.players))]}
+        for i in range(len(self.players)-1, -1, -1):
+            if i == 0:
+                info['ready'] = self.ready
+            response = await is_connected_vroom(self.players[i], info)
+            if response:
+                if i == 0:
+                    if 'action' in response and response['action'] == 'start':
+                        await self.start()
+            else:
+                await disconnect(self.players[i])
+                self.players.remove(self.players[i])
+
+                if len(self.players) >= self.nplayers:
+                    self.ready = True
+                else:
+                    self.ready = False
 
         if not self.players:
             await delete_game_room(self.code)
@@ -91,6 +237,21 @@ async def delete_game_room(code):
 async def room_exists(code):
     async with room_lock:
         return code in rooms
+
+
+async def is_connected_vroom(player, info):
+    try:
+        info['action'] = 'check'
+        if await send_pickle(player.writer, pickle.dumps(info)) == 0:
+            return False
+
+        response = await asyncio.wait_for(read_pickle(player.reader), timeout=1)
+
+        return pickle.loads(response)
+
+    except Exception as e:
+        print(f"[ERROR] is_connected: {e}")
+        return False
 
 
 # Everything needed to create a new account
@@ -349,7 +510,6 @@ async def read_pickle(reader):
         data = await asyncio.wait_for(reader.readexactly(length), timeout=1)
         return data
     except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
-        print(f"[ERROR] read_pickle: {e}")
         return 0
 
 
@@ -365,7 +525,6 @@ async def receive_ingame(reader):
         return {}
 
     except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError, Exception) as e:
-        print(f"[ERROR] read_pickle: {e}")
         return {'end-game': 'connection-lost'}
 
 
@@ -376,7 +535,6 @@ async def send_pickle(writer, message):
         await asyncio.wait_for(writer.drain(), timeout=5)
         return 1
     except (asyncio.TimeoutError, ConnectionResetError, BrokenPipeError, Exception) as e:
-        print(f"[ERROR] send_pickle: {e}")
         return 0
 
 
@@ -614,8 +772,8 @@ async def game_session_1v1(players, score=True):
         map_final = random.randint(1, 30)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
-        await send_pickle(players[0].writer, pickle.dumps({'color': 'blue', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
-        await send_pickle(players[1].writer, pickle.dumps({'color': 'red', 'map': str(map_final), 'players': {'blue': [f'{players[0].username}{titles[0]}'], 'red': [f'{players[1].username}{titles[1]}']}}))
+        await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
+        await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
@@ -784,7 +942,7 @@ async def game_session_2v2(players, score=True):
 
 async def game_session_v4(players, score=True):
     try:
-        map_final = random.randint(37, 39)
+        map_final = random.randint(37, 37)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
         await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
@@ -925,8 +1083,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = pickle.loads(message)
 
-        if message['version'] != '0.10.5' and message['version'] != '0.11.2':
-            await send_pickle(writer, pickle.dumps('version-fail'))
+        if message['version'] != '0.11.2' and message['version'] != '0.12.1':
+            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
+            return
+
+        if message['version'] != '0.11.2':
+            await handle_client_old(reader, writer)
             return
 
         connection_type = message['type']
@@ -965,7 +1127,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         status = await authorize(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
         if not status:
-            await send_pickle(writer, pickle.dumps('authorize-fail'))
+            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'authorize-fail'}))
             return
 
         if connection_type == 'get-stats':
@@ -1001,7 +1163,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 else:
                     custom_map = message['custom_map']
                     if custom_map:
-                        await send_pickle(player.writer, pickle.dumps('send_map'))
+                        await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': 'send-map'}))
                         custom_map = await read_pickle(reader)
                     else:
                         custom_map = None
@@ -1009,22 +1171,29 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     room = GameRoom(code, connection_type, custom_map)
                     await create_game_room(code, room)
                     await rooms[code].add_player(player)
+                    await send_pickle(player.writer, pickle.dumps({'status': 1}))
                     print(f"[QUEUE] {username} created a game room")
             elif connection_type == '1v1':
                 await queue_1v1.put(player)
+                await send_pickle(player.writer, pickle.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined 1v1 queue")
             elif connection_type == '2v2':
                 await queue_2v2.put(player)
+                await send_pickle(player.writer, pickle.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined 2v2 queue")
             elif connection_type == 'v4':
                 await queue_v4.put(player)
+                await send_pickle(player.writer, pickle.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined v4 queue")
             else:
                 await remove_online_user(username)
+                await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'connection-fail'}))
                 player = None
-                print(f"[QUEUE] {username} failed to join queue (invalid state or already online)")
+                print(f"[QUEUE] {username} failed to join queue")
         else:
-            await send_pickle(writer, pickle.dumps('authorize-fail'))
+            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'user-online-fail'}))
+            print(f"[QUEUE] {username} failed to join - already online")
+
 
     except Exception as e:
         print(f"[ERROR] handle_client: {e}")
@@ -1065,6 +1234,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
