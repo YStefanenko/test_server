@@ -1167,7 +1167,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                         await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': 'send-map'}))
                         custom_map = await read_pickle(reader)
                     else:
-                        await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                        await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': None}))
                         custom_map = None
 
                     room = GameRoom(code, connection_type, custom_map)
