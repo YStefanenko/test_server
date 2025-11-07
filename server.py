@@ -1087,7 +1087,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
             return
 
-        if message['version'] != '0.11.2':
+        if message['version'] == '0.11.2':
             await handle_client_old(reader, writer)
             return
 
@@ -1157,8 +1157,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await add_online_user(username)
             code = message['code']
             if code:
-                await send_pickle(player.writer, pickle.dumps({'status': 1}))
                 if await room_exists(code):
+                    await send_pickle(player.writer, pickle.dumps({'status': 1}))
                     await rooms[code].add_player(player)
                     print(f"[QUEUE] {username} joined a game room")
                 else:
@@ -1167,6 +1167,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                         await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': 'send-map'}))
                         custom_map = await read_pickle(reader)
                     else:
+                        await send_pickle(player.writer, pickle.dumps({'status': 1}))
                         custom_map = None
 
                     room = GameRoom(code, connection_type, custom_map)
