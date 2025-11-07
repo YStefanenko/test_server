@@ -1157,6 +1157,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await add_online_user(username)
             code = message['code']
             if code:
+                await send_pickle(player.writer, pickle.dumps({'status': 1}))
                 if await room_exists(code):
                     await rooms[code].add_player(player)
                     print(f"[QUEUE] {username} joined a game room")
@@ -1171,7 +1172,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     room = GameRoom(code, connection_type, custom_map)
                     await create_game_room(code, room)
                     await rooms[code].add_player(player)
-                    await send_pickle(player.writer, pickle.dumps({'status': 1}))
                     print(f"[QUEUE] {username} created a game room")
             elif connection_type == '1v1':
                 await queue_1v1.put(player)
