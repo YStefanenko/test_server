@@ -184,11 +184,11 @@ class GameRoom:
             spectators = None
 
         if self.mode == '1v1':
-            asyncio.create_task(game_session_1v1(self.players, score=False, spectators=spectators))
+            asyncio.create_task(game_session_1v1(self.players[:self.nplayers], score=False, spectators=spectators))
         if self.mode == '2v2':
-            asyncio.create_task(game_session_2v2(self.players, score=False))
+            asyncio.create_task(game_session_2v2(self.players[:self.nplayers], score=False))
         if self.mode == 'v4':
-            asyncio.create_task(game_session_v4(self.players, score=False, spectators=spectators))
+            asyncio.create_task(game_session_v4(self.players[:self.nplayers], score=False, spectators=spectators))
 
         await delete_game_room(self.code)
 
