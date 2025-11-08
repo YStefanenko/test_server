@@ -1077,6 +1077,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         if message['version'] == '0.11.2':
             await handle_client_old(reader, writer, message)
+            player = 1
             return
 
         connection_type = message['type']
