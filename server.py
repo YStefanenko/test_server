@@ -178,12 +178,17 @@ class GameRoom:
             self.ready = True
 
     async def start(self):
+        if len(self.players) > self.nplayers:
+            spectators = self.players[self.nplayers:]
+        else:
+            spectators = None
+
         if self.mode == '1v1':
-            asyncio.create_task(game_session_1v1(self.players, score=False))
+            asyncio.create_task(game_session_1v1(self.players, score=False, spectators=spectators))
         if self.mode == '2v2':
             asyncio.create_task(game_session_2v2(self.players, score=False))
         if self.mode == 'v4':
-            asyncio.create_task(game_session_v4(self.players, score=False))
+            asyncio.create_task(game_session_v4(self.players, score=False, spectators=spectators))
 
         await delete_game_room(self.code)
 
@@ -755,11 +760,16 @@ async def disconnect(player):
 
 async def game_session_1v1(players, score=True, spectators=None):
     try:
+        spectators = spectators or []
         map_final = random.randint(1, 30)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
         await send_pickle(players[0].writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
         await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]}))
+
+        for spectator in spectators:
+            asyncio.create_task(send_pickle(spectator.writer, pickle.dumps({'color': None, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}']]})))
+
         print(f"[GAME] 1v1 started: {players[0].username} vs {players[1].username}")
         await asyncio.sleep(1)
         while True:
@@ -850,8 +860,15 @@ async def game_session_1v1(players, score=True, spectators=None):
                     print(f'[GAME END] Winner: {players[0].username}')
                     break
 
+                # Notify spectators
+                for spectator in spectators:
+                    asyncio.create_task(send_pickle(spectator.writer, pickle.dumps('end-game')))
+
             data = pickle.dumps(message1 | message2)
             await asyncio.gather(send_pickle(players[0].writer, data), send_pickle(players[1].writer, data))
+
+            for spectator in spectators:
+                asyncio.create_task(send_pickle(spectator.writer, data))
 
             elapsed = time.monotonic() - start_time
             if elapsed < 1.03:
@@ -862,6 +879,9 @@ async def game_session_1v1(players, score=True, spectators=None):
     finally:
         await disconnect(players[0])
         await disconnect(players[1])
+        for spectator in spectators:
+            await disconnect(spectator)
+
 
 
 async def game_session_2v2(players, score=True):
@@ -926,8 +946,9 @@ async def game_session_2v2(players, score=True):
         await disconnect(players[3])
 
 
-async def game_session_v4(players, score=True):
+async def game_session_v4(players, score=True, spectators=None):
     try:
+        spectators = spectators or []
         map_final = random.randint(37, 37)
         random.shuffle(players)
         titles = await get_titles([player.username for player in players])
@@ -935,6 +956,9 @@ async def game_session_v4(players, score=True):
         await send_pickle(players[1].writer, pickle.dumps({'color': 1, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
         await send_pickle(players[2].writer, pickle.dumps({'color': 2, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
         await send_pickle(players[3].writer, pickle.dumps({'color': 3, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]}))
+
+        for spectator in spectators:
+            asyncio.create_task(send_pickle(spectator.writer, pickle.dumps({'color': 0, 'map': str(map_final), 'players': [[f'{players[0].username}{titles[0]}'], [f'{players[1].username}{titles[1]}'], [f'{players[2].username}{titles[2]}'], [f'{players[3].username}{titles[3]}']]})))
 
         print(f"[GAME] v4 started: {players[0].username} vs {players[1].username} vs {players[2].username} vs {players[3].username}")
 
@@ -965,11 +989,20 @@ async def game_session_v4(players, score=True):
                 await send_pickle(players[1].writer, pickle.dumps('end-game'))
                 await send_pickle(players[2].writer, pickle.dumps('end-game'))
                 await send_pickle(players[3].writer, pickle.dumps('end-game'))
+
+                # Notify spectators
+                for spectator in spectators:
+                    asyncio.create_task(send_pickle(spectator.writer, pickle.dumps('end-game')))
+
+
                 print(f"[GAME END] v4")
                 break
 
             data = pickle.dumps(message1 | message2 | message3 | message4)
             await asyncio.gather(send_pickle(players[0].writer, data), send_pickle(players[1].writer, data), send_pickle(players[2].writer, data), send_pickle(players[3].writer, data))
+
+            for spectator in spectators:
+                asyncio.create_task(send_pickle(spectator.writer, data))
 
             elapsed = time.monotonic() - start_time
             if elapsed < 1.03:
@@ -982,6 +1015,8 @@ async def game_session_v4(players, score=True):
         await disconnect(players[1])
         await disconnect(players[2])
         await disconnect(players[3])
+        for spectator in spectators:
+            await disconnect(spectator)
 
 
 async def is_connected(player):
