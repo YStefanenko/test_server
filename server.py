@@ -28,24 +28,10 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 # DELETE AFTER 0.11.2
-async def handle_client_old(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+async def handle_client_old(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, message):
     player = None
 
     try:
-        message = await read_pickle(reader)
-        if message == 0:
-            return
-
-        message = pickle.loads(message)
-
-        if message['version'] != '0.11.2' and message['version'] != '0.12.1':
-            await send_pickle(writer, pickle.dumps('version-fail'))
-            return
-
-        if message['version'] != '0.11.2':
-            await handle_client(reader, writer)
-            return
-
         connection_type = message['type']
 
         if connection_type == 'register1':
@@ -767,7 +753,7 @@ async def disconnect(player):
         print(f"[ERROR] disconnect() for {player.username if player else 'Unknown'}: {e}")
 
 
-async def game_session_1v1(players, score=True):
+async def game_session_1v1(players, score=True, spectators=None):
     try:
         map_final = random.randint(1, 30)
         random.shuffle(players)
@@ -1082,17 +1068,15 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             return
 
         message = pickle.loads(message)
-        
+
         if message['version'] != '0.11.2' and message['version'] != '0.12.1':
-            # DELETE AFTER 0.11.2
             await send_pickle(writer, pickle.dumps('version-fail'))
 
             # await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
             return
 
         if message['version'] == '0.11.2':
-            # DELETE AFTER 0.11.2
-            await handle_client_old(reader, writer)
+            await handle_client_old(reader, writer, message)
             return
 
         connection_type = message['type']
@@ -1239,4 +1223,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
