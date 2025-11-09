@@ -892,7 +892,7 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
 
             else:
                 count = 0
-                for i in range(len(data)):
+                for i in range(len(data)-1, -1, -1):
                     if 'end-game' in data[i]:
                         if data[i]['end-game'] == 'connection-lost':
                             await disconnect(active_players[i])
