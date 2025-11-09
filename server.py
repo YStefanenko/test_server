@@ -766,7 +766,7 @@ async def notify_spectator(spectator, data):
 
 
 async def game_session(mode, players, custom_map=None, score=False, spectators=None):
-    active_players = [player for player in players]
+    active_players = []
     spectators = spectators or []
 
     try:
@@ -776,13 +776,14 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
             if mode == '1v1':
                 map_final = random.randint(1, 30)
             elif mode == 'v3':
-                map_final = random.randint(1, 30)
+                map_final = random.randint(31, 33)
             elif mode == 'v4':
                 map_final = random.randint(37, 39)
             else:
                 map_final = 39
 
         random.shuffle(players)
+        active_players = [player for player in players]
 
         titles = await get_titles([player.username for player in players])
         usernames = [[f'{players[i].username}{titles[i]}'] for i in range(len(players))]
