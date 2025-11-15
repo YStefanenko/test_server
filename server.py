@@ -801,6 +801,7 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
             start_time = time.monotonic()
 
             data = await asyncio.gather(*[receive_ingame(player.reader) for player in active_players])
+            data = [element for element in data]
 
             if mode == '1v1':
                 message1, message2 = data
@@ -895,6 +896,7 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
                 count = 0
                 for i in range(len(data)-1, -1, -1):
                     if 'end-game' in data[i]:
+                        data[i] = {}
                         if data[i]['end-game'] == 'connection-lost':
                             await disconnect(active_players[i])
                             active_players.pop(i)
