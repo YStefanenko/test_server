@@ -943,6 +943,7 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
                 # Notify spectators
                 for spectator in spectators:
                     asyncio.create_task(notify_spectator(spectator, pickle.dumps({'end-game': -1})))
+                break
 
             if peace_timer:
                 peace_timer -= 1
