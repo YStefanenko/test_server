@@ -782,6 +782,9 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
             else:
                 map_final = 39
 
+        peace_count = 0
+        peace_timer = 0
+
         random.shuffle(players)
         active_players = [player for player in players]
 
@@ -803,32 +806,37 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
             data = await asyncio.gather(*[receive_ingame(player.reader) for player in active_players])
             data = [element for element in data]
 
+            # Check for end
             if mode == '1v1':
                 message1, message2 = data
                 if 'end-game' in message1 or 'end-game' in message2:
                     # Notify spectators
                     for spectator in spectators:
-                        asyncio.create_task(send_pickle(spectator.writer, pickle.dumps('end-game')))
+                        asyncio.create_task(send_pickle(spectator.writer, pickle.dumps({'end-game': -1})))
 
                     # Check win conditions
                     if 'end-game' in message1 and 'end-game' in message2:
                         if message1['end-game'] == message2['end-game'] == 0:
-                            await score_game(players, 0, additional_info=message1['stats'])
+                            if score:
+                                await score_game(players, 0, additional_info=message1['stats'])
                             print(f'[GAME END] Winner: {players[0].username}')
                             break
 
                         if message1['end-game'] == message2['end-game'] == 1:
-                            await score_game(players, 1, additional_info=message2['stats'])
+                            if score:
+                                await score_game(players, 1, additional_info=message2['stats'])
                             print(f'[GAME END] Winner: {players[1].username}')
                             break
 
                         if message1['end-game'] == 'connection-lost' or message1['end-game'] == 'surrender':
-                            await score_game(players, 1, additional_info=message2['stats'] if 'stats' in message2 else None)
+                            if score:
+                                await score_game(players, 1, additional_info=message2['stats'] if 'stats' in message2 else None)
                             print(f'[GAME END] Winner: {players[1].username}')
                             break
 
                         if message2['end-game'] == 'connection-lost' or message2['end-game'] == 'surrender':
-                            await score_game(players, 0, additional_info=message1['stats'] if 'stats' in message1 else None)
+                            if score:
+                                await score_game(players, 0, additional_info=message1['stats'] if 'stats' in message1 else None)
                             print(f'[GAME END] Winner: {players[0].username}')
                             break
 
@@ -836,21 +844,24 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
 
                     if 'end-game' in message1:
                         if message1['end-game'] == 0 or message1['end-game'] == 1:
-                            await send_pickle(players[1].writer, pickle.dumps('end-game'))
+                            await send_pickle(players[1].writer, pickle.dumps({'end-game': 1}))
                             response = await read_pickle(players[1].reader)
                             if not response:
-                                await score_game(players, 0, additional_info=message1['stats'])
+                                if score:
+                                    await score_game(players, 0, additional_info=message1['stats'])
                                 print(f'[GAME END] Winner: {players[0].username}')
                                 break
 
                             response = pickle.loads(response)
                             if response['end-game'] == message1['end-game']:
                                 if response['end-game'] == 0:
-                                    await score_game(players, 0, additional_info=message1['stats'])
+                                    if score:
+                                        await score_game(players, 0, additional_info=message1['stats'])
                                     print(f'[GAME END] Winner: {players[0].username}')
 
                                 else:
-                                    await score_game(players, 1, additional_info=message1['stats'])
+                                    if score:
+                                        await score_game(players, 1, additional_info=message1['stats'])
                                     print(f'[GAME END] Winner: {players[1].username}')
 
                                 break
@@ -858,28 +869,32 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
                             print(f'[GAME END] Winner: None')
                             break
 
-                        await send_pickle(players[1].writer, pickle.dumps('end-game'))
-                        await score_game(players, 1, additional_info=message1['stats'])
+                        await send_pickle(players[1].writer, pickle.dumps({'end-game': 1}))
+                        if score:
+                            await score_game(players, 1, additional_info=message1['stats'])
                         print(f'[GAME END] Winner: {players[1].username}')
                         break
 
                 if 'end-game' in message2:
                     if message2['end-game'] == 0 or message2['end-game'] == 1:
-                        await send_pickle(players[0].writer, pickle.dumps('end-game'))
+                        await send_pickle(players[0].writer, pickle.dumps({'end-game': 1}))
                         response = await read_pickle(players[0].reader)
                         if not response:
-                            await score_game(players, 1, additional_info=message2['stats'])
+                            if score:
+                                await score_game(players, 1, additional_info=message2['stats'])
                             print(f'[GAME END] Winner: {players[1].username}')
                             break
 
                         response = pickle.loads(response)
                         if response['end-game'] == message2['end-game']:
                             if response['end-game'] == 0:
-                                await score_game(players, 0, additional_info=message2['stats'])
+                                if score:
+                                    await score_game(players, 0, additional_info=message2['stats'])
                                 print(f'[GAME END] Winner: {players[0].username}')
 
                             else:
-                                await score_game(players, 1, additional_info=message2['stats'])
+                                if score:
+                                    await score_game(players, 1, additional_info=message2['stats'])
                                 print(f'[GAME END] Winner: {players[1].username}')
 
                             break
@@ -887,8 +902,9 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
                         print(f'[GAME END] Winner: None')
                         break
 
-                    await send_pickle(players[0].writer, pickle.dumps('end-game'))
-                    await score_game(players, 0, additional_info=message2['stats'])
+                    await send_pickle(players[0].writer, pickle.dumps({'end-game': 1}))
+                    if score:
+                        await score_game(players, 0, additional_info=message2['stats'])
                     print(f'[GAME END] Winner: {players[0].username}')
                     break
 
@@ -905,14 +921,33 @@ async def game_session(mode, players, custom_map=None, score=False, spectators=N
 
                 if count < 2:
                     for player in active_players:
-                        await send_pickle(player.writer, pickle.dumps('end-game'))
+                        await send_pickle(player.writer, pickle.dumps({'end-game': 1}))
 
                     # Notify spectators
                     for spectator in spectators:
-                        asyncio.create_task(notify_spectator(spectator, pickle.dumps('end-game')))
+                        asyncio.create_task(notify_spectator(spectator, pickle.dumps({'end-game': -1})))
 
                     print(f"[GAME END] v34")
                     break
+
+            # Check for peace
+            for message in data:
+                if 'peace' in message:
+                    peace_count += 1
+                    peace_timer = 20
+
+            if peace_count >= len(active_players):
+                for player in active_players:
+                    await send_pickle(player.writer, pickle.dumps({'end-game': 0.5}))
+
+                # Notify spectators
+                for spectator in spectators:
+                    asyncio.create_task(notify_spectator(spectator, pickle.dumps({'end-game': -1})))
+
+            if peace_timer:
+                peace_timer -= 1
+                if peace_timer == 0:
+                    peace_count = 0
 
             merged = data[0]
             for i in range(1, len(data)):
