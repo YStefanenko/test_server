@@ -187,7 +187,7 @@ class GameRoom:
         if self.mode == '1v1':
             asyncio.create_task(game_session('1v1', self.players[:self.nplayers], score=False, spectators=spectators))
         if self.mode == 'v3':
-            asyncio.create_task(game_session('v3', self.players[:self.nplayers], score=False))
+            asyncio.create_task(game_session('v3', self.players[:self.nplayers], score=False, spectators=spectators))
         if self.mode == 'v4':
             asyncio.create_task(game_session('v4', self.players[:self.nplayers], score=False, spectators=spectators))
 
