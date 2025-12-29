@@ -1154,7 +1154,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             await set_title(username, message['title'])
             return
 
-        if connection_type == 'sync_campaign':
+        if connection_type == 'sync-campaign':
             progress = message['progress']
             completed = message['completed']
             status, error, progress = await sync_campaign(username, progress, completed)
