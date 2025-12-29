@@ -6,6 +6,14 @@ import json
 
 DB_NAME = 'database.db'
 
+DEFAULT_STATS = {
+    "units_destroyed": 0,
+    "shortest_game": 3600,
+    "minimal_casualties": 100,
+    "dev_defeated": False,
+    "campaign_completed": False,
+    "campaign_progress": []
+}
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -18,7 +26,7 @@ def init_db():
             number_of_wins INTEGER DEFAULT 0,
             number_of_games INTEGER DEFAULT 0,
             last_active INTEGER,
-            stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false}',
+            stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false, "campaign_progress": []}',
             email TEXT UNIQUE,
             title TEXT default NULL,
             money INTEGER DEFAULT 0,
@@ -102,6 +110,19 @@ def clear_items(username):
     conn.close()
 
 
+def reset_all_stats():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    default_stats_json = json.dumps(DEFAULT_STATS)
+
+    c.execute('UPDATE users SET stats = ?', (default_stats_json,))
+    conn.commit()
+    conn.close()
+
+    print("All user stats have been reset to default.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="User database manager")
 
@@ -128,12 +149,13 @@ def main():
     parser_delete = subparsers.add_parser("give", help="Delete an existing user")
     parser_delete.add_argument("username", help="Username to to give")
     parser_delete.add_argument("money", help="Amount")
-    
+
     # Clear items
     parser_delete = subparsers.add_parser("clear", help="Clear items")
     parser_delete.add_argument("username", help="Username to clear")
-    
 
+    # FULL STATS RESET
+    parser_reset = subparsers.add_parser("FULL STATS RESET", help="Clear items")
 
     args = parser.parse_args()
 
@@ -149,20 +171,13 @@ def main():
         add_money(args.username, args.money)
     elif args.command == "clear":
         clear_items(args.username)
+    elif args.command == "FULL STATS RESET":
+        reset_all_stats()
     else:
         parser.print_help()
 
 
-# Default stats
-default_stats = {
-    'units_destroyed': 0,
-    'shortest_game': 3600,
-    'minimal_casualties': 100,
-    'dev_defeated': False,
-    'campaign_completed': False
-}
-
 # Convert to JSON string
-default_json = json.dumps(default_stats)
+default_json = json.dumps(DEFAULT_STATS)
 
 main()
