@@ -1135,7 +1135,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if connection_type == 'get-stats':
             status, error, response = await get_stats(username)
             response['status'] = status
-            response['error'] = error
+            if error is not None:
+                response['error'] = error
             await send_pickle(writer, pickle.dumps(response))
             return
 
@@ -1143,7 +1144,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             item = message['item']
             price = message['price']
             status, error = await buy_item(username, item, price)
-            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            response = {'status': status}
+            if error is not None:
+                response['error'] = error
+            await send_pickle(writer, pickle.dumps(response))
             return
 
         if connection_type == 'set-title':
@@ -1154,7 +1158,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             progress = message['progress']
             completed = message['completed']
             status, error, progress = await sync_campaign(username, progress, completed)
-            await send_pickle(writer, pickle.dumps({'status': status, 'error': error, 'progress': progress}))
+            response = {'status': status, 'progress': progress}
+            if error is not None:
+                response['error'] = error
+            await send_pickle(writer, pickle.dumps(response))
             return
 
         if not await is_user_online(username):
