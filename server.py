@@ -464,7 +464,7 @@ async def get_stats(username):
     return await asyncio.to_thread(blocking_get)
 
 
-async def sync_campaign(username, progress, completed):
+async def sync_campaign(username, progress):
     def blocking_sync():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
@@ -474,7 +474,7 @@ async def sync_campaign(username, progress, completed):
         row = c.fetchone()
         if row is None:
             conn.close()
-            return 0, 'user-not-found', []
+            return 0, 'user-not-found', [], False
 
         try:
             stats = json.loads(row[0]) if row[0] else {}
@@ -492,14 +492,17 @@ async def sync_campaign(username, progress, completed):
 
         # Set campaign_completed if indicated
         if len(progress) > 29:
+            campaign_completed = True
             stats['campaign_completed'] = True
+        else:
+            campaign_completed = False
 
         # Write back to DB
         c.execute('UPDATE users SET stats = ? WHERE username = ?', (json.dumps(stats), username))
         conn.commit()
         conn.close()
 
-        return 1, None, merged_progress
+        return 1, None, merged_progress, campaign_completed
 
     return await asyncio.to_thread(blocking_sync)
 
@@ -1156,8 +1159,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         if connection_type == 'sync-campaign':
             progress = message['progress']
-            completed = message['completed']
-            status, error, progress, completed = await sync_campaign(username, progress, completed)
+            status, error, progress, completed = await sync_campaign(username, progress)
             response = {'status': status, 'progress': progress, 'completed': completed}
             if error is not None:
                 response['error'] = error
