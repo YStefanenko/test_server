@@ -1,6 +1,5 @@
 import asyncio
 import struct
-import pickle
 import sqlite3
 import bcrypt
 import random
@@ -10,6 +9,7 @@ from email.message import EmailMessage
 import aiosmtplib
 import os
 import json
+import orjson
 
 
 online_users = set()
@@ -59,13 +59,13 @@ class GameRoom:
         if custom_map is None:
             self.custom_map = None
         else:
-            self.custom_map = pickle.loads(custom_map)
+            self.custom_map = orjson.loads(custom_map)
 
 
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
-            await send_pickle(player.writer, pickle.dumps({'mode': self.mode, 'map': self.custom_map, 'players': [self.players[i].username for i in range(len(self.players))]}))
+            await send_orjson(player.writer, orjson.dumps({'mode': self.mode, 'map': self.custom_map, 'players': [self.players[i].username for i in range(len(self.players))]}))
 
         if len(self.players) >= self.nplayers:
             self.ready = True
@@ -126,12 +126,12 @@ async def room_exists(code):
 async def is_connected_vroom(player, info):
     try:
         info['action'] = 'check'
-        if await send_pickle(player.writer, pickle.dumps(info)) == 0:
+        if await send_orjson(player.writer, orjson.dumps(info)) == 0:
             return False
 
-        response = await asyncio.wait_for(read_pickle(player.reader), timeout=1)
+        response = await asyncio.wait_for(read_orjson(player.reader), timeout=1)
 
-        return pickle.loads(response)
+        return orjson.loads(response)
 
     except Exception as e:
         print(f"[ERROR] is_connected: {e}")
@@ -325,7 +325,7 @@ async def login1(username, email):
     real_email = await get_email_address(username)
     if email != real_email[0]:
         return 0, 'email_does_not_match'
-    code = await generate_password(6)
+    code = await generate_password(3)
     async with pending_codes_lock:
         pending_codes[username] = code
 
@@ -649,7 +649,7 @@ async def get_titles(usernames):
 
 
 async def notify_spectator(spectator, data):
-    status = await send_pickle(spectator.writer, data)
+    status = await send_orjson(spectator.writer, data)
     if not status:
         await disconnect(spectator)
 
@@ -666,19 +666,19 @@ async def disconnect(player):
 
 async def is_connected(player):
     try:
-        if await send_pickle(player.writer, pickle.dumps("check")) == 0:
+        if await send_orjson(player.writer, orjson.dumps("check")) == 0:
             return False
 
-        response = await asyncio.wait_for(read_pickle(player.reader), timeout=1)
+        response = await asyncio.wait_for(read_orjson(player.reader), timeout=1)
 
-        return pickle.loads(response) == "check"
+        return orjson.loads(response) == "check"
 
     except Exception as e:
         print(f"[ERROR] is_connected: {e}")
         return False
 
 
-async def read_pickle(reader):
+async def read_orjson(reader):
     try:
         length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=10)
         length = struct.unpack('>I', length_bytes)[0]
@@ -694,7 +694,7 @@ async def receive_ingame(reader):
         length = struct.unpack('>I', length_bytes)[0]
 
         data = await asyncio.wait_for(reader.readexactly(length), timeout=0.5)
-        return pickle.loads(data)
+        return orjson.loads(data)
 
     except asyncio.TimeoutError:
         return {}
@@ -703,7 +703,7 @@ async def receive_ingame(reader):
         return {'end-game': 'connection-lost'}
 
 
-async def send_pickle(writer, message):
+async def send_orjson(writer, message):
     try:
         length_prefix = struct.pack('>I', len(message))
         writer.write(length_prefix + message)
@@ -740,10 +740,10 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
         usernames = [[f'{players[i].username}{titles[i]}'] for i in range(len(players))]
 
         for i in range(len(players)):
-            await send_pickle(players[i].writer, pickle.dumps({'color': i, 'map': str(map_final), 'players': usernames}))
+            await send_orjson(players[i].writer, orjson.dumps({'color': i, 'map': str(map_final), 'players': usernames}))
 
         for spectator in spectators:
-            asyncio.create_task(send_pickle(spectator.writer, pickle.dumps({'color': None, 'map': str(map_final), 'players': usernames})))
+            asyncio.create_task(send_orjson(spectator.writer, orjson.dumps({'color': None, 'map': str(map_final), 'players': usernames})))
 
         print(f"[GAME] {mode} started: {[player.username for player in players]}")
         await asyncio.sleep(1)
@@ -760,7 +760,7 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
                 if 'end-game' in message1 or 'end-game' in message2:
                     # Notify spectators
                     for spectator in spectators:
-                        asyncio.create_task(send_pickle(spectator.writer, pickle.dumps({'end-game': -1})))
+                        asyncio.create_task(send_orjson(spectator.writer, orjson.dumps({'end-game': -1})))
 
                     # Check win conditions
                     if 'end-game' in message1 and 'end-game' in message2:
@@ -788,14 +788,14 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
                     if 'end-game' in message1:
                         if message1['end-game'] == 0 or message1['end-game'] == 1:
-                            await send_pickle(players[1].writer, pickle.dumps({'end-game': 1}))
-                            response = await read_pickle(players[1].reader)
+                            await send_orjson(players[1].writer, orjson.dumps({'end-game': 1}))
+                            response = await read_orjson(players[1].reader)
                             if not response:
                                 await score_game(players, 0, additional_info=message1['stats'], elo=score)
                                 print(f'[GAME END] Winner: {players[0].username}')
                                 break
 
-                            response = pickle.loads(response)
+                            response = orjson.loads(response)
                             if response['end-game'] == message1['end-game']:
                                 if response['end-game'] == 0:
                                     await score_game(players, 0, additional_info=message1['stats'], elo=score)
@@ -810,21 +810,21 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
                             print(f'[GAME END] Winner: None')
                             break
 
-                        await send_pickle(players[1].writer, pickle.dumps({'end-game': 1}))
+                        await send_orjson(players[1].writer, orjson.dumps({'end-game': 1}))
                         await score_game(players, 1, additional_info=message1['stats'], elo=score)
                         print(f'[GAME END] Winner: {players[1].username}')
                         break
 
                 if 'end-game' in message2:
                     if message2['end-game'] == 0 or message2['end-game'] == 1:
-                        await send_pickle(players[0].writer, pickle.dumps({'end-game': 1}))
-                        response = await read_pickle(players[0].reader)
+                        await send_orjson(players[0].writer, orjson.dumps({'end-game': 1}))
+                        response = await read_orjson(players[0].reader)
                         if not response:
                             await score_game(players, 1, additional_info=message2['stats'], elo=score)
                             print(f'[GAME END] Winner: {players[1].username}')
                             break
 
-                        response = pickle.loads(response)
+                        response = orjson.loads(response)
                         if response['end-game'] == message2['end-game']:
                             if response['end-game'] == 0:
                                 await score_game(players, 0, additional_info=message2['stats'], elo=score)
@@ -839,7 +839,7 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
                         print(f'[GAME END] Winner: None')
                         break
 
-                    await send_pickle(players[0].writer, pickle.dumps({'end-game': 1}))
+                    await send_orjson(players[0].writer, orjson.dumps({'end-game': 1}))
                     await score_game(players, 0, additional_info=message2['stats'], elo=score)
                     print(f'[GAME END] Winner: {players[0].username}')
                     break
@@ -867,8 +867,8 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
                     else:
                         winner = players.index(active_players[0])
 
-                    await send_pickle(active_players[0].writer, pickle.dumps({'end-game': 1}))
-                    response = await read_pickle(active_players[0].reader)
+                    await send_orjson(active_players[0].writer, orjson.dumps({'end-game': 1}))
+                    response = await read_orjson(active_players[0].reader)
                     if response:
                         await score_game(players, winner, additional_info=response['stats'], elo=score)
                     else:
@@ -884,7 +884,7 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
                     if end_game:
                         for player in active_players:
-                            await send_pickle(player.writer, pickle.dumps({'end-game': -1}))
+                            await send_orjson(player.writer, orjson.dumps({'end-game': -1}))
 
                         await score_game(players, message['end-game'], additional_info=message['stats'], elo=score)
 
@@ -892,7 +892,7 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
                 if end_game:
                     # Notify spectators
                     for spectator in spectators:
-                        asyncio.create_task(notify_spectator(spectator, pickle.dumps({'end-game': -1})))
+                        asyncio.create_task(notify_spectator(spectator, orjson.dumps({'end-game': -1})))
 
                     print(f"[GAME END] v34 Winner:{winner}")
                     break
@@ -906,15 +906,15 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
             if peace_count >= len(active_players):
                 for player in active_players:
-                    await send_pickle(player.writer, pickle.dumps({'end-game': 0.5}))
+                    await send_orjson(player.writer, orjson.dumps({'end-game': 0.5}))
 
-                response = await read_pickle(active_players[0].reader)
+                response = await read_orjson(active_players[0].reader)
 
                 await score_game(players, None, additional_info=response['stats'], elo=score)
 
                 # Notify spectators
                 for spectator in spectators:
-                    asyncio.create_task(notify_spectator(spectator, pickle.dumps({'end-game': -1})))
+                    asyncio.create_task(notify_spectator(spectator, orjson.dumps({'end-game': -1})))
                 print(f"[GAME END] {mode} PEACE")
                 break
 
@@ -927,8 +927,8 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
             for i in range(1, len(data)):
                 merged |= data[i]
 
-            data = pickle.dumps(merged)
-            await asyncio.gather(*[send_pickle(player.writer, data) for player in players])
+            data = orjson.dumps(merged)
+            await asyncio.gather(*[send_orjson(player.writer, data) for player in players])
 
             for spectator in spectators:
                 asyncio.create_task(notify_spectator(spectator, data))
@@ -1085,21 +1085,21 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     player = None
 
     try:
-        message = await read_pickle(reader)
+        message = await read_orjson(reader)
         if message == 0:
             return
 
-        message = pickle.loads(message)
+        message = orjson.loads(message)
 
         if message['version'] != '0.12.1' and message['version'] != '0.13.3':
-            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'version-fail'}))
+            await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'version-fail'}))
             return
 
         connection_type = message['type']
 
         if connection_type == 'register1':
             status, error = await register_user(message['username'], message['email'])
-            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             if status:
                 print(f"Successfully registered {message['username']} at {message['email']}")
                 await asyncio.sleep(1800)  # 30 minutes
@@ -1113,7 +1113,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         elif connection_type == 'login1':
             status, error = await login1(message['username'], message['email'])
-            await send_pickle(writer, pickle.dumps({'status': status, 'error': error}))
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             await asyncio.sleep(1800)  # 30 minutes
             status = await check_if_active(message['username'])
             if not status:
@@ -1123,7 +1123,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         elif connection_type == 'login2':
             status, password, error = await login2(message['username'], message['code'])
-            await send_pickle(writer, pickle.dumps({'status': status, 'password': password, 'error': error}))
+            await send_orjson(writer, orjson.dumps({'status': status, 'password': password, 'error': error}))
             return
 
         username = message['username']
@@ -1132,7 +1132,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         status = await authorize(username, password)
         print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
         if not status:
-            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'authorize-fail'}))
+            await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'authorize-fail'}))
             return
 
         if connection_type == 'get-stats':
@@ -1140,7 +1140,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             response['status'] = status
             if error is not None:
                 response['error'] = error
-            await send_pickle(writer, pickle.dumps(response))
+            await send_orjson(writer, orjson.dumps(response))
             return
 
         if connection_type == 'buy-item':
@@ -1150,7 +1150,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             response = {'status': status}
             if error is not None:
                 response['error'] = error
-            await send_pickle(writer, pickle.dumps(response))
+            await send_orjson(writer, orjson.dumps(response))
             return
 
         if connection_type == 'set-title':
@@ -1163,7 +1163,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             response = {'status': status, 'progress': progress, 'completed': completed}
             if error is not None:
                 response['error'] = error
-            await send_pickle(writer, pickle.dumps(response))
+            await send_orjson(writer, orjson.dumps(response))
             return
 
         if not await is_user_online(username):
@@ -1178,16 +1178,16 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             code = message['code']
             if code:
                 if await room_exists(code):
-                    await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                    await send_orjson(player.writer, orjson.dumps({'status': 1}))
                     await rooms[code].add_player(player)
                     print(f"[QUEUE] {username} joined a game room")
                 else:
                     custom_map = message['custom_map']
                     if custom_map:
-                        await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': 'send-map'}))
-                        custom_map = await read_pickle(reader)
+                        await send_orjson(player.writer, orjson.dumps({'status': 1, 'action': 'send-map'}))
+                        custom_map = await read_orjson(reader)
                     else:
-                        await send_pickle(player.writer, pickle.dumps({'status': 1, 'action': None}))
+                        await send_orjson(player.writer, orjson.dumps({'status': 1, 'action': None}))
                         custom_map = None
 
                     room = GameRoom(code, connection_type, custom_map)
@@ -1196,27 +1196,27 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     print(f"[QUEUE] {username} created a game room")
             elif connection_type == '1v1':
                 await queue_1v1.put(player)
-                await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                await send_orjson(player.writer, orjson.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined 1v1 queue")
             elif connection_type == 'v3':
                 await queue_v3.put(player)
-                await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                await send_orjson(player.writer, orjson.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined v3 queue")
             elif connection_type == 'v4':
                 await queue_v4.put(player)
-                await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                await send_orjson(player.writer, orjson.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined v4 queue")
             elif connection_type == 'v34':
                 await queue_v34.put(player)
-                await send_pickle(player.writer, pickle.dumps({'status': 1}))
+                await send_orjson(player.writer, orjson.dumps({'status': 1}))
                 print(f"[QUEUE] {username} joined v34 queue")
             else:
                 await remove_online_user(username)
-                await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'connection-fail'}))
+                await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'connection-fail'}))
                 player = None
                 print(f"[QUEUE] {username} failed to join queue")
         else:
-            await send_pickle(writer, pickle.dumps({'status': 0, 'error': 'user-online-fail'}))
+            await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'user-online-fail'}))
             print(f"[QUEUE] {username} failed to join - already online")
 
 
