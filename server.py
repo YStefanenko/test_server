@@ -491,7 +491,7 @@ async def sync_campaign(username, progress, completed):
         stats['campaign_progress'] = merged_progress
 
         # Set campaign_completed if indicated
-        if completed:
+        if len(progress) > 29:
             stats['campaign_completed'] = True
 
         # Write back to DB
@@ -1157,8 +1157,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         if connection_type == 'sync-campaign':
             progress = message['progress']
             completed = message['completed']
-            status, error, progress = await sync_campaign(username, progress, completed)
-            response = {'status': status, 'progress': progress}
+            status, error, progress, completed = await sync_campaign(username, progress, completed)
+            response = {'status': status, 'progress': progress, 'completed': completed}
             if error is not None:
                 response['error'] = error
             await send_pickle(writer, pickle.dumps(response))
