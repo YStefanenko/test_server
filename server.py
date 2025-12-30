@@ -295,7 +295,7 @@ async def register_user(username, email):
     status = await add_user(username, generated_password, email)
     if not status:
         return 0, 'username_taken'
-    code = await generate_password(3)
+    code = await generate_password(4)
     async with pending_codes_lock:
         pending_codes[username] = code
     status = await send_email(f"""
@@ -325,7 +325,7 @@ async def login1(username, email):
     real_email = await get_email_address(username)
     if email != real_email[0]:
         return 0, 'email_does_not_match'
-    code = await generate_password(3)
+    code = await generate_password(4)
     async with pending_codes_lock:
         pending_codes[username] = code
 
@@ -354,10 +354,7 @@ async def login2(username, code):
             real_code = pending_codes[username]
         else:
             real_code = None
-    
-    print(f'Real code: {real_code}')
-    print(f'Entered code: {code}')
-    
+
     if real_code is None:
         return 0, None, 'expired_code'
     if real_code != code:
