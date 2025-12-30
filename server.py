@@ -354,6 +354,10 @@ async def login2(username, code):
             real_code = pending_codes[username]
         else:
             real_code = None
+    
+    print(f'Real code: {real_code}')
+    print(f'Entered code: {code}')
+    
     if real_code is None:
         return 0, None, 'expired_code'
     if real_code != code:
@@ -1115,10 +1119,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             status, error = await login1(message['username'], message['email'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             await asyncio.sleep(1800)  # 30 minutes
-            status = await check_if_active(message['username'])
-            if not status:
-                async with pending_codes_lock:
-                    del pending_codes[message['username']]
+            async with pending_codes_lock:
+                del pending_codes[message['username']]
             return
 
         elif connection_type == 'login2':
