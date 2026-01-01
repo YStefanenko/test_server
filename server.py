@@ -169,6 +169,18 @@ async def email_exists(email):
     return await asyncio.to_thread(blocking_check)
 
 
+async def steam_id_exists(steam_id):
+    def blocking_check():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM users WHERE steam_id = ?', (steam_id,))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
+
+    return await asyncio.to_thread(blocking_check)
+
+
 async def check_if_active(username):
     def blocking_check():
         conn = sqlite3.connect(database_name)
@@ -350,18 +362,6 @@ async def register_user(username, email, steam_id=None):
     return 1, None
 
 
-async def register_user_steam(username, steam_id):
-    status = 1 - await user_exists(username)
-    if not status:
-        return 0, 'username_taken', None
-    generated_password = await generate_password(12)
-    status = await add_user(username, generated_password, None, steam_id)
-    if not status:
-        return 0, 'username_taken', None
-
-    return 1, None, generated_password
-
-
 async def login1(username, email):
     status = await user_exists(username)
     if not status:
@@ -392,17 +392,6 @@ async def login1(username, email):
     return 1, None
 
 
-async def login_steam(steam_id):
-    username = await get_username(steam_id)
-    if username is None:
-        return 0, 'user_does_not_exist', None, None
-
-    password = await generate_password(12)
-    await change_password(username, password)
-
-    return 1, None, username, password
-
-
 async def login2(username, code, steam_id=None):
     async with pending_codes_lock:
         if username in pending_codes:
@@ -425,6 +414,38 @@ async def login2(username, code, steam_id=None):
         await add_steam_id(username, steam_id)
 
     return 1, generated_password, None
+
+
+
+async def steam_login(steam_id):
+    username = await get_username(steam_id)
+    if username is None:
+        return 0, 'user-not-found', None, None
+    generated_password = await generate_password(12)
+    status = await change_password(username, generated_password)
+    if not status:
+        return 0, 'user-not-found', None, None
+    
+    return 1, None, username, generated_password
+
+
+async def steam_register(username, steam_id):
+    status = 1 - await user_exists(username)
+    if not status:
+        return 0, 'username_taken', None, None
+    
+    status = 1 - await steam_id_exists(steam_id)
+    if not status:
+        return 0, 'steam-id-taken', None, None
+    
+    generated_password = await generate_password(12)
+    status = await add_user(username, generated_password, None, steam_id)
+    
+    if not status:
+        return 0, 'username_taken', None, None
+    
+    return 1, None, username, generated_password
+    
 
 
 async def update_last_active(username: str):
@@ -1159,7 +1180,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         connection_type = message['type']
 
         if connection_type == 'register1':
-            status, error = await register_user(message['username'], message['email'])
+            status, error = await register_user(message['username'], message['email'], steam_id=message['steam_id'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             if status:
                 print(f"Successfully registered {message['username']} at {message['email']}")
@@ -1172,13 +1193,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     await delete_user(message['username'])
             return
 
-        elif connection_type == 'register1-steam':
-            status, error, password = await register_user_steam(message['username'], message['steam-id'])
-            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': message['username'], 'password': password}))
-            if status:
-                print(f"Successfully registered {message['username']} at {message['steam-id']}")
-            return
-
         elif connection_type == 'login1':
             status, error = await login1(message['username'], message['email'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
@@ -1187,14 +1201,19 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 del pending_codes[message['username']]
             return
 
-        elif connection_type == 'login-steam':
-            status, error, username, password = await login_steam(message['steam-id'])
-            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password}))
+        elif connection_type == 'login2':
+            status, password, error = await login2(message['username'], message['code'], steam_id=message['steam_id'])
+            await send_orjson(writer, orjson.dumps({'status': status, 'password': password, 'error': error}))
+            return
+        
+        elif connection_type == 'steam_register':
+            status, error, username, password = steam_register(message['username'], message['steam_id'])
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password,}))
             return
 
-        elif connection_type == 'login2':
-            status, password, error = await login2(message['username'], message['code'])
-            await send_orjson(writer, orjson.dumps({'status': status, 'password': password, 'error': error}))
+        elif connection_type == 'steam_login':
+            status, error, username, password = steam_login(message['steam_id'])
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password, }))
             return
 
         username = message['username']
