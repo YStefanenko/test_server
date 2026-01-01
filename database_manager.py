@@ -22,12 +22,13 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password_hash TEXT NOT NULL,
+            steam_id TEXT NULL,
             score INTEGER DEFAULT 1000,
             number_of_wins INTEGER DEFAULT 0,
             number_of_games INTEGER DEFAULT 0,
             last_active INTEGER,
             stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false, "campaign_progress": []}',
-            email TEXT UNIQUE,
+            email TEXT NULL,
             title TEXT default NULL,
             money INTEGER DEFAULT 0,
             items TEXT DEFAULT '[]',
@@ -128,7 +129,29 @@ def steam_coloumn_append():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    c.execute("ALTER TABLE users ADD COLUMN steam_id TEXT")
+    c.executescript("""
+    ALTER TABLE users RENAME TO users_old;
+
+    CREATE TABLE users (
+        username TEXT PRIMARY KEY,
+        password_hash BLOB NULL,
+        steam_id TEXT NULL,
+        score INTEGER DEFAULT 1000,
+        number_of_wins INTEGER DEFAULT 0,
+        number_of_games INTEGER DEFAULT 0,
+        last_active INTEGER,
+        stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false, "campaign_progress": []}',
+        email TEXT NULL,
+        title TEXT DEFAULT NULL,
+        money INTEGER DEFAULT 0,
+        items TEXT DEFAULT '[]'
+    );
+
+    INSERT INTO users
+    SELECT * FROM users_old;
+
+    DROP TABLE users_old;
+    """)
 
     conn.commit()
     conn.close()
