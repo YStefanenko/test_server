@@ -425,7 +425,7 @@ async def steam_login(steam_id):
     status = await change_password(username, generated_password)
     if not status:
         return 0, 'user-not-found', None, None
-    
+
     return 1, None, username, generated_password
 
 
@@ -433,19 +433,19 @@ async def steam_register(username, steam_id):
     status = 1 - await user_exists(username)
     if not status:
         return 0, 'username_taken', None, None
-    
+
     status = 1 - await steam_id_exists(steam_id)
     if not status:
         return 0, 'steam-id-taken', None, None
-    
+
     generated_password = await generate_password(12)
     status = await add_user(username, generated_password, None, steam_id)
-    
+
     if not status:
         return 0, 'username_taken', None, None
-    
+
     return 1, None, username, generated_password
-    
+
 
 
 async def update_last_active(username: str):
@@ -1205,14 +1205,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             status, password, error = await login2(message['username'], message['code'], steam_id=message['steam_id'])
             await send_orjson(writer, orjson.dumps({'status': status, 'password': password, 'error': error}))
             return
-        
+
         elif connection_type == 'steam_register':
-            status, error, username, password = steam_register(message['username'], message['steam_id'])
+            status, error, username, password = await steam_register(message['username'], message['steam_id'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password,}))
             return
 
         elif connection_type == 'steam_login':
-            status, error, username, password = steam_login(message['steam_id'])
+            status, error, username, password = await steam_login(message['steam_id'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password, }))
             return
 
