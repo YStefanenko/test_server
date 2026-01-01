@@ -393,7 +393,7 @@ async def login1(username, email):
 
 
 async def login_steam(steam_id):
-    username = get_username(steam_id)
+    username = await get_username(steam_id)
     if username is None:
         return 0, 'user_does_not_exist', None, None
 
@@ -1152,7 +1152,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         message = orjson.loads(message)
 
-        if message['version'] != '0.12.1' and message['version'] != '0.13.3':
+        if message['version'] != '0.13.3':
             await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'version-fail'}))
             return
 
@@ -1174,7 +1174,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         elif connection_type == 'register1-steam':
             status, error, password = await register_user_steam(message['username'], message['steam-id'])
-            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'password': password}))
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': message['username'], 'password': password}))
             if status:
                 print(f"Successfully registered {message['username']} at {message['steam-id']}")
             return
