@@ -239,7 +239,7 @@ async def get_username(steam_id):
         result = c.fetchone()
         conn.close()
 
-        return result
+        return result[0]
 
     result = await asyncio.to_thread(blocking_login)
 
