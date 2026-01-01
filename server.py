@@ -328,7 +328,7 @@ async def send_email(text, email):
     return 0
 
 
-async def register_user(username, email, steam_id=None):
+async def register_user(username, email):
     status = 1 - await user_exists(username)
     if not status:
         return 0, 'username_taken'
@@ -336,7 +336,7 @@ async def register_user(username, email, steam_id=None):
     if not status:
         return 0, 'email_taken'
     generated_password = await generate_password(12)
-    status = await add_user(username, generated_password, email, steam_id)
+    status = await add_user(username, generated_password, email, None)
     if not status:
         return 0, 'username_taken'
     code = await generate_password(4)
@@ -1185,7 +1185,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         connection_type = message['type']
 
         if connection_type == 'register1':
-            status, error = await register_user(message['username'], message['email'], steam_id=message['steam_id'])
+            status, error = await register_user(message['username'], message['email'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             if status:
                 print(f"Successfully registered {message['username']} at {message['email']}")
