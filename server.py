@@ -367,6 +367,8 @@ async def login1(username, email):
     if not status:
         return 0, 'user_does_not_exist'
     real_email = await get_email_address(username)
+    print(real_email)
+    print(email)
     if email != real_email[0]:
         return 0, 'email_does_not_match'
     code = await generate_password(4)
@@ -418,11 +420,14 @@ async def login2(username, code, steam_id=None):
 
 
 async def steam_login(steam_id):
+    print(steam_id)
     username = await get_username(steam_id)
+    print(username)
     if username is None:
         return 0, 'user-not-found', None, None
     generated_password = await generate_password(12)
     status = await change_password(username, generated_password)
+    print(status)
     if not status:
         return 0, 'user-not-found', None, None
 
@@ -437,10 +442,10 @@ async def steam_register(username, steam_id):
     status = 1 - await steam_id_exists(steam_id)
     if not status:
         return 0, 'steam-id-taken', None, None
-
+    print(status)
     generated_password = await generate_password(12)
     status = await add_user(username, generated_password, None, steam_id)
-
+    print(status)
     if not status:
         return 0, 'username_taken', None, None
 
