@@ -31,6 +31,7 @@ def init_db():
             title TEXT default NULL,
             money INTEGER DEFAULT 0,
             items TEXT DEFAULT '[]',
+        )
     ''')
     conn.commit()
     conn.close()
@@ -123,6 +124,15 @@ def reset_all_stats():
     print("All user stats have been reset to default.")
 
 
+def steam_coloumn_append():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("ALTER TABLE users ADD COLUMN steam_id TEXT")
+
+    conn.commit()
+    conn.close()
+
 def main():
     parser = argparse.ArgumentParser(description="User database manager")
 
@@ -157,6 +167,10 @@ def main():
     # FULL STATS RESET
     parser_reset = subparsers.add_parser("FULL STATS RESET", help="Clear items")
 
+    # Steam id append
+    parser_reset = subparsers.add_parser("steam", help="Add steam coloumn")
+
+
     args = parser.parse_args()
 
     if args.command == "add":
@@ -173,6 +187,8 @@ def main():
         clear_items(args.username)
     elif args.command == "FULL STATS RESET":
         reset_all_stats()
+    elif args.command == "steam":
+        steam_coloumn_append()
     else:
         parser.print_help()
 
