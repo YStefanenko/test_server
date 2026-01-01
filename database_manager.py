@@ -134,7 +134,7 @@ def steam_coloumn_append():
 
     CREATE TABLE users (
         username TEXT PRIMARY KEY,
-        password_hash BLOB NULL,
+        password_hash TEXT NOT NULL,
         steam_id TEXT NULL,
         score INTEGER DEFAULT 1000,
         number_of_wins INTEGER DEFAULT 0,
