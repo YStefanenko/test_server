@@ -61,7 +61,6 @@ class GameRoom:
         else:
             self.custom_map = orjson.loads(custom_map)
 
-
     async def add_player(self, player):
         self.players.append(player)
         if not len(self.players) == 1:
@@ -87,7 +86,7 @@ class GameRoom:
 
     async def check_room(self):
         info = {'players': [self.players[i].username for i in range(len(self.players))]}
-        for i in range(len(self.players)-1, -1, -1):
+        for i in range(len(self.players) - 1, -1, -1):
             if i == 0:
                 info['ready'] = self.ready
             response = await is_connected_vroom(self.players[i], info)
@@ -186,7 +185,7 @@ async def check_if_active(username):
     return await asyncio.to_thread(blocking_check)
 
 
-async def add_user(username, password, email):
+async def add_user(username, password, email, steam_id):
     def blocking_add():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
@@ -196,9 +195,9 @@ async def add_user(username, password, email):
         try:
             c.execute('''
                 INSERT INTO users (
-                    username, password_hash, last_active, email
-                ) VALUES (?, ?, ?, ?)
-            ''', (username, password_hash, last_active, email))
+                    username, password_hash, last_active, email, steam_id
+                ) VALUES (?, ?, ?, ?, ?)
+            ''', (username, password_hash, last_active, email, steam_id))
             conn.commit()
             return 1
         except sqlite3.IntegrityError:
@@ -218,6 +217,39 @@ async def delete_user(username):
         conn.close()
 
     await asyncio.to_thread(blocking_delete)
+
+
+async def get_username(steam_id):
+    def blocking_login():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE steam_id = ?', (steam_id,))
+        result = c.fetchone()
+        conn.close()
+
+        return result
+
+    result = await asyncio.to_thread(blocking_login)
+
+    return result
+
+
+async def add_steam_id(username, steam_id):
+    def blocking_change():
+        conn = sqlite3.connect(database_name)
+        c = conn.cursor()
+
+        try:
+            c.execute("UPDATE users SET steam_id = ? WHERE username = ?", (steam_id, username))
+            conn.commit()
+            return 1
+        except sqlite3.IntegrityError:
+            return 0
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(blocking_change)
+
 
 
 async def get_email_address(username):
@@ -284,7 +316,7 @@ async def send_email(text, email):
     return 0
 
 
-async def register_user(username, email):
+async def register_user(username, email, steam_id=None):
     status = 1 - await user_exists(username)
     if not status:
         return 0, 'username_taken'
@@ -292,7 +324,7 @@ async def register_user(username, email):
     if not status:
         return 0, 'email_taken'
     generated_password = await generate_password(12)
-    status = await add_user(username, generated_password, email)
+    status = await add_user(username, generated_password, email, steam_id)
     if not status:
         return 0, 'username_taken'
     code = await generate_password(4)
@@ -300,15 +332,15 @@ async def register_user(username, email):
         pending_codes[username] = code
     status = await send_email(f"""
         Hi {username},
-        
+
         Thank you for registering an account in War of Dots!
-        
+
         Here is your verification code:        
         {code}
         You have 30 minutes to log in, otherwise the account will be deactivated.
-        
+
         I am excited to have you in the battle. Thanks again, and enjoy the game!
-        
+
         – TeaAndPython
     """, email)
     if not status:
@@ -316,6 +348,18 @@ async def register_user(username, email):
         return 0, 'email_invalid'
 
     return 1, None
+
+
+async def register_user_steam(username, steam_id):
+    status = 1 - await user_exists(username)
+    if not status:
+        return 0, 'username_taken', None
+    generated_password = await generate_password(12)
+    status = await add_user(username, generated_password, None, steam_id)
+    if not status:
+        return 0, 'username_taken', None
+
+    return 1, None, generated_password
 
 
 async def login1(username, email):
@@ -348,7 +392,18 @@ async def login1(username, email):
     return 1, None
 
 
-async def login2(username, code):
+async def login_steam(steam_id):
+    username = get_username(steam_id)
+    if username is None:
+        return 0, 'user_does_not_exist', None, None
+
+    password = await generate_password(12)
+    await change_password(username, password)
+
+    return 1, None, username, password
+
+
+async def login2(username, code, steam_id=None):
     async with pending_codes_lock:
         if username in pending_codes:
             real_code = pending_codes[username]
@@ -366,6 +421,8 @@ async def login2(username, code):
         return 0, None, 'expired_code'
 
     await update_last_active(username)
+    if steam_id is not None:
+        await add_steam_id(username, steam_id)
 
     return 1, generated_password, None
 
@@ -380,8 +437,6 @@ async def update_last_active(username: str):
         conn.close()
 
     await asyncio.to_thread(blocking_update)
-
-
 
 
 # ACCOUNT STATS RELATED
@@ -460,7 +515,13 @@ async def get_stats(username):
 
         other_stats = DEFAULT_STATS.copy() | other_stats
 
-        return 1, None, {"username": username, "title": title, "score": score, "rank": higher_count + 1, "number_of_games": number_of_games, "number_of_wins": number_of_wins, "units_destroyed": other_stats['units_destroyed'], "shortest_game":  other_stats['shortest_game'], "minimal_casualties": other_stats['minimal_casualties'],  "dev_defeated": other_stats['dev_defeated'],  "campaign_completed": other_stats['campaign_completed'], 'money': money, 'items': items}
+        return 1, None, {"username": username, "title": title, "score": score, "rank": higher_count + 1,
+                         "number_of_games": number_of_games, "number_of_wins": number_of_wins,
+                         "units_destroyed": other_stats['units_destroyed'],
+                         "shortest_game": other_stats['shortest_game'],
+                         "minimal_casualties": other_stats['minimal_casualties'],
+                         "dev_defeated": other_stats['dev_defeated'],
+                         "campaign_completed": other_stats['campaign_completed'], 'money': money, 'items': items}
 
     return await asyncio.to_thread(blocking_get)
 
@@ -507,6 +568,7 @@ async def sync_campaign(username, progress):
 
     return await asyncio.to_thread(blocking_sync)
 
+
 # GAME RELATED
 
 async def update_elo(score_a, score_b, k=50):
@@ -540,7 +602,6 @@ async def score_game(players, winner, additional_info=None, elo=True):
 
         for i in range(len(scores)):
             scores[i] = round(scores[i] + deltas[i])
-
 
     # Write updates to DB in a thread
     def blocking_score():
@@ -627,6 +688,7 @@ async def get_score(username):
 
 async def get_titles(usernames):
     titles = []
+
     def blocking_get():
         conn = sqlite3.connect(database_name)
         c = conn.cursor()
@@ -851,7 +913,7 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
                 # Count active players
                 count = 0
-                for i in range(len(data)-1, -1, -1):
+                for i in range(len(data) - 1, -1, -1):
                     if 'end-game' in data[i]:
                         if data[i]['end-game'] == 'connection-lost' or data[i]['end-game'] == 'surrender':
                             await disconnect(active_players[i])
@@ -889,7 +951,6 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
                         await score_game(players, message['end-game'], additional_info=message['stats'], elo=score)
 
-
                 if end_game:
                     # Notify spectators
                     for spectator in spectators:
@@ -897,7 +958,6 @@ async def game_session(mode, players, custom_map=None, score=True, spectators=No
 
                     print(f"[GAME END] v34 Winner:{winner}")
                     break
-
 
             # Check for peace
             for message in data:
@@ -1021,7 +1081,6 @@ async def matchmaking_v34():
 
             await asyncio.sleep(1)
 
-
         if len(players_v4) + len(players_v34) >= 4:
             selected_players = []
             while len(selected_players) < 4:
@@ -1044,6 +1103,7 @@ async def matchmaking_v34():
                     players_v34.pop(0)
 
             asyncio.create_task(game_session('v3', selected_players))
+
 
 # USER ONLINE MANAGEMENT
 async def add_online_user(username):
@@ -1112,12 +1172,24 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     await delete_user(message['username'])
             return
 
+        elif connection_type == 'register1-steam':
+            status, error, password = await register_user_steam(message['username'], message['steam-id'])
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'password': password}))
+            if status:
+                print(f"Successfully registered {message['username']} at {message['steam-id']}")
+            return
+
         elif connection_type == 'login1':
             status, error = await login1(message['username'], message['email'])
             await send_orjson(writer, orjson.dumps({'status': status, 'error': error}))
             await asyncio.sleep(1800)  # 30 minutes
             async with pending_codes_lock:
                 del pending_codes[message['username']]
+            return
+
+        elif connection_type == 'login-steam':
+            status, error, username, password = await login_steam(message['steam-id'])
+            await send_orjson(writer, orjson.dumps({'status': status, 'error': error, 'username': username, 'password': password}))
             return
 
         elif connection_type == 'login2':
