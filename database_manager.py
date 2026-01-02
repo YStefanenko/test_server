@@ -152,6 +152,27 @@ def update_user_field(username, field, value):
     conn.close()
 
 
+def info(username):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+
+    if row is None:
+        print("User not found")
+        conn.close()
+        return
+
+    columns = [desc[0] for desc in c.description]
+    user_info = dict(zip(columns, row))
+
+    for key, value in user_info.items():
+        print(f"{key}: {value}")
+
+    conn.close()
+
+
 def print_database():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -214,8 +235,9 @@ def main():
 
     parser_print = subparsers.add_parser("print", help="Print database")
 
-
-
+    # Get info
+    parser_change = subparsers.add_parser("info", help="Get info")
+    parser_change.add_argument("username", help="Username")
 
 
     args = parser.parse_args()
@@ -234,6 +256,8 @@ def main():
         clear_items(args.username)
     elif args.command == "change":
         update_user_field(args.username, args.field, args.value)
+    elif args.command == "info":
+        info(args.username)
     elif args.command == "print":
         print_database()
     else:
