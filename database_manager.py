@@ -211,7 +211,7 @@ def main():
     parser_change.add_argument("username", help="Username")
     parser_change.add_argument("field", help="Field")
     parser_change.add_argument("value", help="Value")
-    
+
     parser_print = subparsers.add_parser("print", help="Print database")
 
 
@@ -235,7 +235,7 @@ def main():
     elif args.command == "change":
         update_user_field(args.username, args.field, args.value)
     elif args.command == "print":
-        update_user_field()
+        print_database()
     else:
         parser.print_help()
 
