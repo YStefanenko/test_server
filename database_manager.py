@@ -115,13 +115,13 @@ def clear_items(username):
 # def reset_all_stats():
 #     conn = sqlite3.connect(DB_NAME)
 #     c = conn.cursor()
-# 
+#
 #     default_stats_json = json.dumps(DEFAULT_STATS)
-# 
+#
 #     c.execute('UPDATE users SET stats = ?', (default_stats_json,))
 #     conn.commit()
 #     conn.close()
-# 
+#
 #     print("All user stats have been reset to default.")
 
 
@@ -238,6 +238,6 @@ def main():
 # Convert to JSON string
 default_json = json.dumps(DEFAULT_STATS)
 
-# main()
+main()
 # init_db()
-copy()
+# copy()
