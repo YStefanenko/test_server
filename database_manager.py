@@ -152,7 +152,7 @@ def update_user_field(username, field, value):
     conn.close()
 
 
-def copy():
+def print_database():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     # conn_old = sqlite3.connect('database_old.db')
@@ -211,6 +211,9 @@ def main():
     parser_change.add_argument("username", help="Username")
     parser_change.add_argument("field", help="Field")
     parser_change.add_argument("value", help="Value")
+    
+    parser_print = subparsers.add_parser("print", help="Print database")
+
 
 
 
@@ -231,6 +234,8 @@ def main():
         clear_items(args.username)
     elif args.command == "change":
         update_user_field(args.username, args.field, args.value)
+    elif args.command == "print":
+        update_user_field()
     else:
         parser.print_help()
 
