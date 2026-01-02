@@ -29,9 +29,9 @@ def init_db():
             last_active INTEGER,
             stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false, "campaign_progress": []}',
             email TEXT NULL,
-            title TEXT default NULL,
+            title TEXT DEFAULT NULL,
             money INTEGER DEFAULT 0,
-            items TEXT DEFAULT '[]',
+            items TEXT DEFAULT '[]'
         )
     ''')
     conn.commit()
@@ -112,49 +112,68 @@ def clear_items(username):
     conn.close()
 
 
-def reset_all_stats():
+# def reset_all_stats():
+#     conn = sqlite3.connect(DB_NAME)
+#     c = conn.cursor()
+# 
+#     default_stats_json = json.dumps(DEFAULT_STATS)
+# 
+#     c.execute('UPDATE users SET stats = ?', (default_stats_json,))
+#     conn.commit()
+#     conn.close()
+# 
+#     print("All user stats have been reset to default.")
+
+
+def update_user_field(username, field, value):
+    ALLOWED_USER_COLUMNS = {
+        "password_hash",
+        "steam_id",
+        "score",
+        "number_of_wins",
+        "number_of_games",
+        "last_active",
+        "stats",
+        "email",
+        "title",
+        "money",
+        "items",
+    }
+    if field not in ALLOWED_USER_COLUMNS:
+        raise ValueError(f"Invalid field name: {field}")
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    default_stats_json = json.dumps(DEFAULT_STATS)
+    query = f"UPDATE users SET {field} = ? WHERE username = ?"
+    c.execute(query, (value, username))  # None → NULL automatically
 
-    c.execute('UPDATE users SET stats = ?', (default_stats_json,))
     conn.commit()
     conn.close()
 
-    print("All user stats have been reset to default.")
 
-
-def steam_coloumn_append():
+def copy():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # conn_old = sqlite3.connect('database_old.db')
+    # c_old = conn_old.cursor()
+    #
+    # c_old.execute("SELECT * FROM users")
+    # rows = c_old.fetchall()
+    #
+    # for row in rows:
+    #     c.execute('INSERT INTO users (username, password_hash, steam_id, score, number_of_wins, number_of_games, last_active, stats, email, title, money, items) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (row[0], row[1], None, row[2], row[3], row[4], row[5], row[8], row[6], row[7], row[9], row[10]))
+    # conn.commit()
 
-    c.executescript("""
-    ALTER TABLE users RENAME TO users_old;
+    c.execute("SELECT * FROM users")
+    rows = c.fetchall()
+    columns = [desc[0] for desc in c.description]
 
-    CREATE TABLE users (
-        username TEXT PRIMARY KEY,
-        password_hash TEXT NOT NULL,
-        steam_id TEXT NULL,
-        score INTEGER DEFAULT 1000,
-        number_of_wins INTEGER DEFAULT 0,
-        number_of_games INTEGER DEFAULT 0,
-        last_active INTEGER,
-        stats TEXT DEFAULT '{"units_destroyed": 0, "shortest_game": 3600, "minimal_casualties": 100, "dev_defeated": false, "campaign_completed": false, "campaign_progress": []}',
-        email TEXT NULL,
-        title TEXT DEFAULT NULL,
-        money INTEGER DEFAULT 0,
-        items TEXT DEFAULT '[]'
-    );
+    for row in rows:
+        row_dict = dict(zip(columns, row))
+        print(row_dict)
 
-    INSERT INTO users
-    SELECT * FROM users_old;
 
-    DROP TABLE users_old;
-    """)
-
-    conn.commit()
-    conn.close()
 
 def main():
     parser = argparse.ArgumentParser(description="User database manager")
@@ -187,11 +206,13 @@ def main():
     parser_delete = subparsers.add_parser("clear", help="Clear items")
     parser_delete.add_argument("username", help="Username to clear")
 
-    # FULL STATS RESET
-    parser_reset = subparsers.add_parser("FULL STATS RESET", help="Clear items")
+    # Change value
+    parser_change = subparsers.add_parser("change", help="Add steam coloumn")
+    parser_change.add_argument("username", help="Username")
+    parser_change.add_argument("field", help="Field")
+    parser_change.add_argument("value", help="Value")
 
-    # Steam id append
-    parser_reset = subparsers.add_parser("steam", help="Add steam coloumn")
+
 
 
     args = parser.parse_args()
@@ -208,10 +229,8 @@ def main():
         add_money(args.username, args.money)
     elif args.command == "clear":
         clear_items(args.username)
-    elif args.command == "FULL STATS RESET":
-        reset_all_stats()
-    elif args.command == "steam":
-        steam_coloumn_append()
+    elif args.command == "change":
+        update_user_field(args.username, args.field, args.value)
     else:
         parser.print_help()
 
@@ -219,4 +238,6 @@ def main():
 # Convert to JSON string
 default_json = json.dumps(DEFAULT_STATS)
 
-main()
+# main()
+# init_db()
+copy()
