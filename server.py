@@ -133,7 +133,6 @@ async def is_connected_vroom(player, info):
         return orjson.loads(response)
 
     except Exception as e:
-        print(f"[ERROR] is_connected: {e}")
         return False
 
 
@@ -299,7 +298,6 @@ async def change_password(username, password):
 
 async def send_email(text, email):
     if not EMAIL_USER or not EMAIL_PASS:
-        print("Environment variables EMAIL_USER or EMAIL_PASS are not set.")
         return 0
 
     message = EmailMessage()
@@ -320,11 +318,11 @@ async def send_email(text, email):
         print(f"Email sent: {response}")
         return 1
     except aiosmtplib.SMTPException as e:
-        print(f"SMTP error occurred: {e}")
+        pass
     except asyncio.TimeoutError:
-        print("Email send timed out.")
+        pass
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        pass
     return 0
 
 
@@ -367,8 +365,6 @@ async def login1(username, email):
     if not status:
         return 0, 'user_does_not_exist'
     real_email = await get_email_address(username)
-    print(real_email)
-    print(email)
     if email != real_email[0]:
         return 0, 'email_does_not_match'
     code = await generate_password(4)
@@ -420,14 +416,11 @@ async def login2(username, code, steam_id=None):
 
 
 async def steam_login(steam_id):
-    print(steam_id)
     username = await get_username(steam_id)
-    print(username)
     if username is None:
         return 0, 'user-not-found', None, None
     generated_password = await generate_password(12)
     status = await change_password(username, generated_password)
-    print(status)
     if not status:
         return 0, 'user-not-found', None, None
 
@@ -442,10 +435,8 @@ async def steam_register(username, steam_id):
     status = 1 - await steam_id_exists(steam_id)
     if not status:
         return 0, 'steam-id-taken', None, None
-    print(status)
     generated_password = await generate_password(12)
     status = await add_user(username, generated_password, None, steam_id)
-    print(status)
     if not status:
         return 0, 'username_taken', None, None
 
@@ -744,13 +735,12 @@ async def notify_spectator(spectator, data):
 
 
 async def disconnect(player):
-    print(f"[DISCONNECT] {player.username} disconnected")
     await remove_online_user(player.username)
     try:
         player.writer.close()
         await player.writer.wait_closed()
     except Exception as e:
-        print(f"[ERROR] disconnect() for {player.username if player else 'Unknown'}: {e}")
+        pass
 
 
 async def is_connected(player):
@@ -763,7 +753,6 @@ async def is_connected(player):
         return orjson.loads(response) == "check"
 
     except Exception as e:
-        print(f"[ERROR] is_connected: {e}")
         return False
 
 
@@ -1057,7 +1046,7 @@ async def matchmaking_1v1():
                     if not await is_connected(players[i]):
                         await disconnect(players[i])
                         players.pop(i)
-                await asyncio.sleep(20)
+                await asyncio.sleep(10)
 
         players.sort(key=lambda p: p.score)
 
@@ -1086,6 +1075,7 @@ async def matchmaking_v34():
                     if not await is_connected(players_v3[i]):
                         await disconnect(players_v3[i])
                         players_v3.pop(i)
+                await asyncio.sleep(1)
 
             try:
                 player = queue_v4.get_nowait()
@@ -1095,6 +1085,7 @@ async def matchmaking_v34():
                     if not await is_connected(players_v4[i]):
                         await disconnect(players_v4[i])
                         players_v4.pop(i)
+                await asyncio.sleep(1)
 
             try:
                 player = queue_v34.get_nowait()
@@ -1104,8 +1095,7 @@ async def matchmaking_v34():
                     if not await is_connected(players_v34[i]):
                         await disconnect(players_v34[i])
                         players_v34.pop(i)
-
-            await asyncio.sleep(1)
+                await asyncio.sleep(1)
 
         if len(players_v4) + len(players_v34) >= 4:
             selected_players = []
@@ -1225,7 +1215,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         password = message['password']
 
         status = await authorize(username, password)
-        print(f"[LOGIN] {username} - {'SUCCESS' if status else 'FAIL'}")
         if not status:
             await send_orjson(writer, orjson.dumps({'status': 0, 'error': 'authorize-fail'}))
             return
@@ -1316,7 +1305,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
     except Exception as e:
-        print(f"[ERROR] handle_client: {e}")
         if player:
             await disconnect(player)
 
@@ -1326,7 +1314,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 writer.close()
                 await writer.wait_closed()
             except Exception as e:
-                print(f"[ERROR] handle_client: {e}")
+                pass
 
 
 async def main():
