@@ -10,6 +10,7 @@ import aiosmtplib
 import os
 import json
 import orjson
+# import boto3
 
 
 online_users = set()
@@ -24,8 +25,18 @@ room_lock = None
 pending_codes = {}
 pending_codes_lock = None
 
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+# EMAIL_USER = os.getenv("EMAIL_USER")
+# EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+# ses = boto3.client("ses", region_name="us-east-1")
+
+MAILGUN_SMTP_HOST = "smtp.eu.mailgun.org"
+MAILGUN_SMTP_PORT = 587
+
+MAILGUN_SMTP_USER = os.getenv("EMAIL_USER")
+MAILGUN_SMTP_PASS = os.getenv("EMAIL_PASS")
+
+FROM_EMAIL = "verification@warofdots.demetheria.xyz"
 
 DEFAULT_STATS = {
     "units_destroyed": 0,
@@ -296,35 +307,77 @@ async def change_password(username, password):
     return await asyncio.to_thread(blocking_change)
 
 
-async def send_email(text, email):
-    if not EMAIL_USER or not EMAIL_PASS:
-        return 0
+# async def send_email(text, email):
+#     if not EMAIL_USER or not EMAIL_PASS:
+#         return 0
+#
+#     message = EmailMessage()
+#     message["From"] = EMAIL_USER
+#     message["To"] = email
+#     message["Subject"] = "War of Dots"
+#     message.set_content(text)
+#
+#     try:
+#         response = await aiosmtplib.send(
+#             message,
+#             hostname="smtp.gmail.com",
+#             port=587,
+#             start_tls=True,
+#             username=EMAIL_USER,
+#             password=EMAIL_PASS,
+#             timeout=10)
+#         print(f"Email sent: {response}")
+#         return 1
+#     except aiosmtplib.SMTPException as e:
+#         pass
+#     except asyncio.TimeoutError:
+#         pass
+#     except Exception as e:
+#         pass
+#     return 0
 
+
+
+# async def send_email(text: str, email: str) -> int:
+#     try:
+#         await asyncio.to_thread(
+#             ses.send_email,
+#             Source="info@warofdots.net",
+#             Destination={"ToAddresses": [email]},
+#             Message={
+#                 "Subject": {"Data": "War of Dots"},
+#                 "Body": {
+#                     "Text": {"Data": text}
+#                 }
+#             }
+#         )
+#         return 1
+#     except Exception as e:
+#         print("SES error:", e)
+#         return 0
+
+
+async def send_email(text: str, email: str) -> int:
     message = EmailMessage()
-    message["From"] = EMAIL_USER
+    message["From"] = FROM_EMAIL
     message["To"] = email
     message["Subject"] = "War of Dots"
     message.set_content(text)
 
     try:
-        response = await aiosmtplib.send(
+        await aiosmtplib.send(
             message,
-            hostname="smtp.gmail.com",
-            port=587,
+            hostname=MAILGUN_SMTP_HOST,
+            port=MAILGUN_SMTP_PORT,
             start_tls=True,
-            username=EMAIL_USER,
-            password=EMAIL_PASS,
-            timeout=10)
-        print(f"Email sent: {response}")
+            username=MAILGUN_SMTP_USER,
+            password=MAILGUN_SMTP_PASS,
+            timeout=10,
+        )
         return 1
-    except aiosmtplib.SMTPException as e:
-        pass
-    except asyncio.TimeoutError:
-        pass
     except Exception as e:
-        pass
-    return 0
-
+        print("Mailgun error:", e)
+        return 0
 
 async def register_user(username, email):
     status = 1 - await user_exists(username)
@@ -782,12 +835,16 @@ async def receive_ingame(reader):
 
 
 async def send_orjson(writer, message):
+    if writer.is_closing():
+        return 0
+
     try:
-        length_prefix = struct.pack('>I', len(message))
-        writer.write(length_prefix + message)
+        writer.write(struct.pack(">I", len(message)) + message)
         await asyncio.wait_for(writer.drain(), timeout=5)
         return 1
-    except (asyncio.TimeoutError, socket.error, ConnectionResetError, BrokenPipeError, Exception) as e:
+
+    except (asyncio.TimeoutError, OSError):
+        writer.close()
         return 0
 
 
