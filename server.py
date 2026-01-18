@@ -357,27 +357,27 @@ async def send_email(text, email):
 #         return 0
 
 
-async def send_email(text: str, email: str) -> int:
-    message = EmailMessage()
-    message["From"] = FROM_EMAIL
-    message["To"] = email
-    message["Subject"] = "War of Dots"
-    message.set_content(text)
-
-    try:
-        await aiosmtplib.send(
-            message,
-            hostname=MAILGUN_SMTP_HOST,
-            port=MAILGUN_SMTP_PORT,
-            start_tls=True,
-            username=MAILGUN_SMTP_USER,
-            password=MAILGUN_SMTP_PASS,
-            timeout=10,
-        )
-        return 1
-    except Exception as e:
-        print("Mailgun error:", e)
-        return 0
+# async def send_email(text: str, email: str) -> int:
+#     message = EmailMessage()
+#     message["From"] = FROM_EMAIL
+#     message["To"] = email
+#     message["Subject"] = "War of Dots"
+#     message.set_content(text)
+# 
+#     try:
+#         await aiosmtplib.send(
+#             message,
+#             hostname=MAILGUN_SMTP_HOST,
+#             port=MAILGUN_SMTP_PORT,
+#             start_tls=True,
+#             username=MAILGUN_SMTP_USER,
+#             password=MAILGUN_SMTP_PASS,
+#             timeout=10,
+#         )
+#         return 1
+#     except Exception as e:
+#         print("Mailgun error:", e)
+#         return 0
 
 async def register_user(username, email):
     status = 1 - await user_exists(username)
